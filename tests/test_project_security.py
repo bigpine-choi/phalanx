@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import subprocess
+import tomllib
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _is_git_ignored(path: str) -> bool:
+    result = subprocess.run(
+        ["git", "check-ignore", "--quiet", "--no-index", path],
+        cwd=ROOT,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def test_secret_and_runtime_paths_are_ignored() -> None:
+    ignored_paths = (
+        ".env",
+        ".env.local",
+        "kis_devlp.yaml",
+        "secrets/kis.txt",
+        "runtime/token-cache/kis-access-token.json",
+        "runtime/token-cache/.token.tmp",
+        "runtime/snapshots/account.json",
+    )
+
+    assert all(_is_git_ignored(path) for path in ignored_paths)
+    assert not _is_git_ignored(".env.example")
+
+
+def test_env_example_has_only_empty_real_account_settings() -> None:
+    assignments = {}
+    for raw_line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        assert separator == "="
+        assignments[key] = value
+
+    assert assignments == {
+        "PHALANX_KIS_APP_KEY": "",
+        "PHALANX_KIS_APP_SECRET": "",
+        "PHALANX_KIS_ACCOUNT_NUMBER": "",
+    }
+
+
+def test_automated_tests_disable_network_access() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert "--disable-socket" in pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+
+
+def test_source_has_no_paper_or_order_endpoints() -> None:
+    forbidden_fragments = (
+        "openapivts.koreainvestment.com",
+        "VTTC8434R",
+        "/uapi/domestic-stock/v1/trading/order-cash",
+        "/uapi/domestic-stock/v1/trading/order-rvsecncl",
+        "/uapi/hashkey",
+    )
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in (ROOT / "src" / "phalanx").rglob("*.py")
+    )
+
+    assert all(fragment not in source for fragment in forbidden_fragments)
+
+
+def test_readme_documents_read_only_contract() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    required_statements = (
+        "실전투자 환경만 지원",
+        "READ ONLY",
+        "예수금 총액",
+        "orderable_cash",
+        "자동 테스트와 CI에서는 실제 한국투자증권 API를 호출하지 않습니다",
+    )
+    assert all(statement in readme for statement in required_statements)

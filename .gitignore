@@ -5,6 +5,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Credentials and secrets
 .env
@@ -12,6 +16,9 @@ __pycache__/
 !.env.example
 kis_devlp.yaml
 secrets/
+*.pem
+*.p12
+*.pfx
 
 # Local account and runtime data
 runtime/
