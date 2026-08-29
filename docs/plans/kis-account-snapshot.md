@@ -12,7 +12,7 @@
 - 네트워크 POST는 OAuth 접근토큰 발급 `/oauth2/tokenP` 하나만 허용한다. 계좌 잔고는 GET으로만 조회한다.
 - `dnca_tot_amt`는 모델과 터미널에서 항상 **예수금 총액**으로 명명한다.
 - 예수금 총액을 가용현금, 주문가능현금 또는 Phalanx 투자예산으로 사용하지 않는다.
-- `orderable_cash`는 `None`/`null`, 표시값 `미산정`으로 유지한다.
+- `orderable_cash`는 `None`/`null`, 표시값 `미제공`으로 유지한다.
 - 향후 실제 매매계획 마일스톤에서 매수가능조회 API의 `nrcvb_buy_amt`를 별도로 조회한 뒤 주문가능현금 계약을 설계한다.
 
 1차 자료는 KIS Developers 공식 API 문서와 한국투자증권 공식 `open-trading-api` GitHub 예제를 사용한다.
@@ -71,8 +71,7 @@
 운영 의존성:
 
 - `httpx`: 동기 REST 클라이언트, 타임아웃, 테스트 전송 계층 주입
-- `pydantic`: 검증된 frozen 모델과 `Decimal` 직렬화
-- `pydantic-settings`: 명시적으로 전달된 외부 자격증명 매핑 검증과 `SecretStr`; 현재 작업 디렉터리의 dotenv 자동 탐색은 사용하지 않음
+- `pydantic`: 검증된 frozen 모델과 `Decimal` 직렬화, `BaseModel` 기반 외부 자격증명 매핑 검증과 `SecretStr`; 현재 작업 디렉터리의 dotenv 자동 탐색은 사용하지 않음
 - `typer`: 기본 명령과 명시적 하위 명령 별칭
 - `rich`: 사람이 읽을 수 있는 계좌 요약과 잔고 표
 - `filelock`: 동일 자격증명의 동시 토큰 갱신 직렬화
@@ -128,7 +127,7 @@ install -m 600 .env.example "$HOME/.config/phalanx/credentials.env"
 
 계좌번호는 `8자리-2자리` 형식을 검증하고 API 요청 시 앞 8자리 `CANO`와 뒤 2자리 `ACNT_PRDT_CD`로 분리한다. 설정 객체에서는 앱 키와 앱 시크릿을 `SecretStr`로 보관하며 repr, 로그, 검증 오류에 원문이 나오지 않게 한다.
 
-테스트는 기본 자격증명 로더를 호출하지 않는다. `monkeypatch`로 주입한 임시 환경변수 또는 합성 매핑에서 직접 만든 설정 객체만 사용하며 실제 홈 디렉터리의 파일에 접근하지 않는다.
+테스트는 실제 기본 자격증명 경로를 사용하지 않는다. `tmp_path` 아래에 명시적으로 주입한 합성 자격증명 파일 또는 합성 `BaseModel` 설정 객체만 사용하며 실제 홈 디렉터리의 파일이나 프로세스 환경변수에 접근하지 않는다.
 
 ## 5. OAuth 및 토큰 캐시
 
@@ -247,7 +246,7 @@ AccountSnapshot
 | `total_assets` | `tot_evlu_amt` | 총자산 평가액 |
 | `net_assets` | `nass_amt` | 순자산액 |
 
-`dnca_tot_amt`를 `cash`, `available_cash`, `orderable_cash`, `budget`으로 별칭 처리하지 않는다. `orderable_cash`는 항상 미산정이며 `deposit_total`과 독립적이다.
+`dnca_tot_amt`를 `cash`, `available_cash`, `orderable_cash`, `budget`으로 별칭 처리하지 않는다. `orderable_cash`는 항상 `None`/`null`, 표시값 `미제공`이며 `deposit_total`과 독립적이다.
 
 `hldg_qty > 0`은 `positions`, `hldg_qty == 0`은 `zero_quantity_balances`에 둔다. 후자는 실제 보유종목 합계에서 제외한다.
 
@@ -306,7 +305,7 @@ uv run phalanx account snapshot
 - 프로그램이 프로젝트 루트 `.env`를 탐색하거나 읽지 않는지
 - 외부 자격증명 파일 부재 시 아무 경로도 생성하지 않고 안전 안내 후 실패하는지
 - 외부 디렉터리·파일의 소유자, 일반 파일 여부, 심볼릭 링크 거부와 정확한 `0700`/`0600` 권한 검증
-- 테스트가 실제 `~/.config/phalanx/credentials.env`를 읽지 않고 임시 환경변수 또는 합성 설정만 사용하는지
+- 테스트가 실제 `~/.config/phalanx/credentials.env`를 읽지 않고 주입한 임시 파일 또는 합성 `BaseModel` 설정 객체만 사용하는지
 - 계좌번호, 앱 키, 앱 시크릿, 토큰이 stdout, stderr, repr, 예외, JSON에 없는지
 - OAuth POST와 잔고 GET 이외의 메서드·경로가 전송 전에 차단되는지
 
@@ -352,7 +351,7 @@ uv run phalanx account snapshot
 
 ## 13. 수동 read-only 스모크 테스트
 
-Mock 테스트와 별도로 KIS 기능 구현 완료 후 개발자가 로컬에서만 수행한다. README에 저장소 외부 자격증명 파일의 안전한 생성과 `0700`/`0600` 확인, 루트 `.env` 부재 확인, `uv run phalanx` 실행, 마스킹·예수금 명칭·미산정 주문가능현금·스냅샷 비밀정보 부재·보유종목 대조 절차를 기록한다.
+Mock 테스트와 별도로 KIS 기능 구현 완료 후 개발자가 로컬에서만 수행한다. README에 저장소 외부 자격증명 파일의 안전한 생성과 `0700`/`0600` 확인, 루트 `.env` 부재 확인, `uv run phalanx` 실행, 마스킹·예수금 명칭·미제공 주문가능현금·스냅샷 비밀정보 부재·보유종목 대조 절차를 기록한다.
 
 이 테스트는 주문 없이 잔고조회만 수행한다. 자동 테스트와 CI에서는 절대 실행하지 않으며 실제 API 호출이 필요한 pytest marker도 만들지 않는다.
 
@@ -361,7 +360,7 @@ Mock 테스트와 별도로 KIS 기능 구현 완료 후 개발자가 로컬에�
 1. `chore: configure dependencies and secret/runtime hygiene`
    - 의존성, `.gitignore`, `.env.example`, 최종 계획, read-only README, 프로젝트 보안 회귀 테스트
 2. `feat: add immutable account snapshot models and storage`
-   - Decimal 모델, 예수금/미산정 주문가능현금 계약, 0수량 분리, 안전한 JSON 저장
+   - Decimal 모델, 예수금/미제공 주문가능현금 계약, 0수량 분리, 안전한 JSON 저장
 3. `feat: add KIS OAuth token cache`
    - 실전 OAuth, 생성 시점 `0700/0600`, 잠금, 원자 캐시와 테스트
 4. `feat: add read-only KIS balance client with pagination`
