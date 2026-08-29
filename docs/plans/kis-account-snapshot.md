@@ -38,6 +38,7 @@
 ├── src/phalanx/
 │   ├── __init__.py
 │   ├── __main__.py
+│   ├── application.py
 │   ├── cli.py
 │   ├── config.py
 │   ├── domain/
@@ -51,7 +52,6 @@
 │   │   └── errors.py
 │   └── snapshots.py
 ├── tests/
-│   ├── conftest.py
 │   ├── fixtures/kis/
 │   ├── test_project_security.py
 │   ├── test_config.py
@@ -60,13 +60,11 @@
 │   ├── test_pagination.py
 │   ├── test_account_models.py
 │   ├── test_snapshots.py
-│   ├── test_cli.py
-│   └── test_security.py
-└── runtime/
-    └── snapshots/
+│   ├── test_application.py
+│   └── test_cli.py
 ```
 
-접근토큰 캐시는 저장소 외부의 `~/.cache/phalanx/token-cache/kis-access-token.json`에 저장한다. `runtime/`은 스냅샷 저장 시 생성하며 저장소에는 디렉터리나 `.gitkeep`도 커밋하지 않는다.
+접근토큰 캐시는 저장소 외부의 `~/.cache/phalanx/token-cache/kis-access-token.json`에 저장한다. 완성된 스냅샷도 저장소 외부의 `~/.local/share/phalanx/snapshots/`에 저장한다. `runtime/` 제외 규칙은 방어 목적으로만 유지하며 production 기본 경로로 사용하지 않는다.
 
 ## 3. 의존성
 
@@ -255,7 +253,7 @@ AccountSnapshot
 
 ## 10. JSON evidence와 저장
 
-`runtime/snapshots/account_snapshot_{타임스탬프}_{고유값}.json`을 한 번만 생성하고 덮어쓰지 않는다. 모든 `Decimal`은 JSON 부동소수점이 아니라 십진 문자열로 직렬화한다.
+`~/.local/share/phalanx/snapshots/account_snapshot_{타임스탬프}_{고유값}.json`을 한 번만 생성하고 덮어쓰지 않는다. 경로 결정은 저장 로직과 분리하며 실행 시점의 `Path.home()`만 사용하고 CWD와 XDG 환경변수는 무시한다. 기존 `~/.local/share`의 권한은 변경하지 않으며, 프로그램 소유 `phalanx`와 `snapshots` 디렉터리는 각각 `0700`, 임시파일과 최종 JSON은 `0600`을 유지한다. 모든 `Decimal`은 JSON 부동소수점이 아니라 십진 문자열로 직렬화한다.
 
 evidence에는 다음을 보존한다.
 
@@ -288,7 +286,7 @@ uv run phalanx account snapshot
 - 마스킹된 계좌번호
 - 조회 시작·완료시각
 - `예수금 총액`
-- `주문가능현금: 미산정`
+- `주문가능현금: 미제공`
 - 주식평가액, 총자산, 평가손익
 - 종목별 보유수량·매도가능수량·매입금액·평가금액·평가손익
 - 실제 보유종목과 분리된 0수량 잔고 건수
@@ -371,6 +369,6 @@ Mock 테스트와 별도로 KIS 기능 구현 완료 후 개발자가 로컬에�
 5. `feat: expose read-only account snapshot CLI`
    - 기본 명령, 명시적 별칭, Rich 출력, 통합 Mock 테스트와 README 마무리
 
-현재 4번은 단일 페이지 엄격 파서(4A)와 실전 read-only HTTP 연속조회(4B)로 나누어 완료했으며, 5번 스냅샷 저장 오케스트레이션과 CLI는 아직 시작하지 않았다.
+현재 4번은 단일 페이지 엄격 파서(4A)와 실전 read-only HTTP 연속조회(4B)로, 5번은 저장 오케스트레이션과 CLI(5A)로 구현했다. 실제 자격증명 입력과 실제 KIS 호출은 자동화하지 않으며 수동 read-only 스모크 테스트로만 남긴다.
 
 각 기능 커밋에는 해당 단위테스트를 함께 포함하며 실제 자격증명이나 실제 API 응답을 커밋하지 않는다.

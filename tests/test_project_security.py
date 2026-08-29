@@ -93,6 +93,31 @@ def test_documentation_keeps_default_token_cache_outside_repository() -> None:
     assert "기존 `~/.cache`의 권한은 변경하지 않는다" in plan
 
 
+def test_documentation_keeps_default_snapshots_outside_repository() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    plan = (ROOT / "docs" / "plans" / "kis-account-snapshot.md").read_text(encoding="utf-8")
+    external_snapshots = "~/.local/share/phalanx/snapshots/"
+
+    for document in (readme, plan):
+        assert external_snapshots in document
+        assert "`runtime/snapshots/`에 JSON" not in document
+
+    snapshot_source = (ROOT / "src" / "phalanx" / "snapshots.py").read_text(encoding="utf-8")
+    assert "runtime/snapshots" not in snapshot_source
+    assert "XDG_DATA_HOME" not in snapshot_source
+
+
+def test_cli_entry_points_and_options_remain_read_only_and_fixed() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    cli_source = (ROOT / "src" / "phalanx" / "cli.py").read_text(encoding="utf-8")
+    module_entry = (ROOT / "src" / "phalanx" / "__main__.py").read_text(encoding="utf-8")
+
+    assert pyproject["project"]["scripts"]["phalanx"] == "phalanx.cli:main"
+    assert "from phalanx.cli import main" in module_entry
+    forbidden_options = ("--environment", "--paper", "--demo", "--real")
+    assert all(option not in cli_source for option in forbidden_options)
+
+
 def test_automated_tests_disable_network_access() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 

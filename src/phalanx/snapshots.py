@@ -10,7 +10,6 @@ from pathlib import Path
 
 from phalanx.domain import AccountSnapshot
 
-DEFAULT_SNAPSHOT_DIRECTORY = Path("runtime/snapshots")
 PRIVATE_DIRECTORY_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
 
@@ -52,6 +51,10 @@ def _validate_private_directory(path: Path) -> None:
     metadata = path.lstat()
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
         raise UnsafeSnapshotPathError(f"snapshot directory is not a real directory: {path}")
+    if metadata.st_uid != os.geteuid():
+        raise UnsafeSnapshotPathError(
+            f"snapshot directory must be owned by the current user: {path}"
+        )
     if stat.S_IMODE(metadata.st_mode) != PRIVATE_DIRECTORY_MODE:
         raise UnsafeSnapshotPathError(f"snapshot directory must have mode 0700: {path}")
 
@@ -129,14 +132,8 @@ def _serialize_snapshot(snapshot: AccountSnapshot) -> bytes:
     return f"{serialized}\n".encode()
 
 
-def save_snapshot(
-    snapshot: AccountSnapshot,
-    directory: Path = DEFAULT_SNAPSHOT_DIRECTORY,
-) -> Path:
-    """Atomically persist a complete snapshot without following links or overwriting files."""
-
+def _store_snapshot(snapshot: AccountSnapshot, snapshot_directory: Path) -> Path:
     payload = _serialize_snapshot(snapshot)
-    snapshot_directory = _ensure_private_directory(directory)
     final_name = _snapshot_filename(snapshot)
     final_path = snapshot_directory / final_name
 
@@ -152,10 +149,12 @@ def save_snapshot(
         directory_metadata = os.fstat(directory_descriptor)
         if (
             not stat.S_ISDIR(directory_metadata.st_mode)
+            or directory_metadata.st_uid != os.geteuid()
             or stat.S_IMODE(directory_metadata.st_mode) != PRIVATE_DIRECTORY_MODE
         ):
             raise UnsafeSnapshotPathError(
-                f"snapshot directory must be a real directory with mode 0700: {snapshot_directory}"
+                "snapshot directory must be current-user owned with mode 0700: "
+                f"{snapshot_directory}"
             )
 
         file_descriptor, temporary_name = _open_secure_temporary_file(
@@ -201,10 +200,50 @@ def save_snapshot(
             os.close(directory_descriptor)
 
 
+def default_snapshot_directory() -> Path:
+    """Resolve the fixed production snapshot directory at execution time."""
+
+    return Path.home() / ".local" / "share" / "phalanx" / "snapshots"
+
+
+class SnapshotStore:
+    """Persist complete snapshots in one injected or fixed production directory."""
+
+    def __init__(self, directory: Path | None = None) -> None:
+        self._application_directories: tuple[Path, ...]
+        if directory is None:
+            resolved_directory = default_snapshot_directory()
+            self._application_directories = (
+                resolved_directory.parent,
+                resolved_directory,
+            )
+        else:
+            resolved_directory = Path(directory)
+            self._application_directories = (resolved_directory,)
+        self.directory = resolved_directory
+
+    def save(self, snapshot: AccountSnapshot) -> Path:
+        """Atomically persist one already-complete immutable snapshot."""
+
+        prepared_directories = tuple(
+            _ensure_private_directory(directory) for directory in self._application_directories
+        )
+        for directory in prepared_directories:
+            _validate_private_directory(directory)
+        return _store_snapshot(snapshot, prepared_directories[-1])
+
+
+def save_snapshot(snapshot: AccountSnapshot, directory: Path | None = None) -> Path:
+    """Atomically persist a complete snapshot without following links or overwriting files."""
+
+    return SnapshotStore(directory).save(snapshot)
+
+
 __all__ = [
-    "DEFAULT_SNAPSHOT_DIRECTORY",
     "SnapshotAlreadyExistsError",
     "SnapshotStorageError",
+    "SnapshotStore",
     "UnsafeSnapshotPathError",
+    "default_snapshot_directory",
     "save_snapshot",
 ]
