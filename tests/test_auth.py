@@ -85,12 +85,158 @@ def _cache_path(tmp_path: Path) -> Path:
     return tmp_path / "runtime" / "token-cache" / "kis-access-token.json"
 
 
+def _default_cache_path(home: Path) -> Path:
+    return home / ".cache" / "phalanx" / "token-cache" / "kis-access-token.json"
+
+
+def _patch_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+
 def _write_with_mode(path: Path, contents: str, mode: int) -> None:
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
     try:
         os.write(descriptor, contents.encode("utf-8"))
     finally:
         os.close(descriptor)
+
+
+def test_default_cache_uses_home_not_cwd_or_xdg_cache_home(
+    tmp_path: Path,
+    client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_home = tmp_path / "home"
+    working_directory = tmp_path / "project"
+    xdg_cache_home = tmp_path / "xdg-cache"
+    working_directory.mkdir()
+    _patch_home(monkeypatch, fake_home)
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(xdg_cache_home))
+
+    KisTokenManager(
+        _credentials(),
+        client=client_factory(_json_handler(_token_payload())),
+        clock=lambda: NOW,
+    ).get_access_token()
+
+    expected_path = _default_cache_path(fake_home)
+    assert expected_path.is_file()
+    assert not (working_directory / "runtime" / "token-cache").exists()
+    assert not xdg_cache_home.exists()
+
+
+def test_default_cache_owned_directories_and_files_have_private_modes(
+    tmp_path: Path,
+    client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_home = tmp_path / "home"
+    cache_root = fake_home / ".cache"
+    cache_root.mkdir(mode=0o755, parents=True)
+    _patch_home(monkeypatch, fake_home)
+
+    KisTokenManager(
+        _credentials(),
+        client=client_factory(_json_handler(_token_payload())),
+        clock=lambda: NOW,
+    ).get_access_token()
+
+    cache_path = _default_cache_path(fake_home)
+    phalanx_directory = cache_root / "phalanx"
+    token_cache_directory = phalanx_directory / "token-cache"
+    lock_path = cache_path.with_name(f"{cache_path.name}.lock")
+    assert stat.S_IMODE(cache_root.stat().st_mode) == 0o755
+    assert stat.S_IMODE(phalanx_directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(token_cache_directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(cache_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(lock_path.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("linked_directory", ("phalanx", "token-cache"))
+def test_default_cache_rejects_application_directory_symbolic_links(
+    tmp_path: Path,
+    client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    linked_directory: str,
+) -> None:
+    fake_home = tmp_path / "home"
+    cache_root = fake_home / ".cache"
+    cache_root.mkdir(mode=0o755, parents=True)
+    actual_directory = tmp_path / "actual-cache"
+    actual_directory.mkdir(mode=0o700)
+    phalanx_directory = cache_root / "phalanx"
+    if linked_directory == "phalanx":
+        phalanx_directory.symlink_to(actual_directory, target_is_directory=True)
+    else:
+        phalanx_directory.mkdir(mode=0o700)
+        (phalanx_directory / "token-cache").symlink_to(actual_directory, target_is_directory=True)
+    _patch_home(monkeypatch, fake_home)
+
+    def unexpected_network(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"unexpected network call to {request.url}")
+
+    manager = KisTokenManager(
+        _credentials(),
+        client=client_factory(unexpected_network),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(TokenCacheError):
+        manager.get_access_token()
+
+
+@pytest.mark.parametrize("unsafe_directory", ("phalanx", "token-cache"))
+def test_default_cache_does_not_repair_application_directory_permissions(
+    tmp_path: Path,
+    client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_directory: str,
+) -> None:
+    fake_home = tmp_path / "home"
+    cache_root = fake_home / ".cache"
+    cache_root.mkdir(mode=0o755, parents=True)
+    phalanx_directory = cache_root / "phalanx"
+    phalanx_directory.mkdir(mode=0o755 if unsafe_directory == "phalanx" else 0o700)
+    checked_directory = phalanx_directory
+    if unsafe_directory == "token-cache":
+        checked_directory = phalanx_directory / "token-cache"
+        checked_directory.mkdir(mode=0o755)
+    _patch_home(monkeypatch, fake_home)
+
+    manager = KisTokenManager(
+        _credentials(),
+        client=client_factory(_json_handler(_token_payload())),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(TokenCacheError):
+        manager.get_access_token()
+
+    assert stat.S_IMODE(checked_directory.stat().st_mode) == 0o755
+    if unsafe_directory == "phalanx":
+        assert not (phalanx_directory / "token-cache").exists()
+
+
+def test_injected_cache_path_never_resolves_home(
+    tmp_path: Path,
+    client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_home(cls: type[Path]) -> Path:
+        raise AssertionError("Path.home must not be called for an injected cache path")
+
+    monkeypatch.setattr(Path, "home", classmethod(fail_home))
+    cache_path = _cache_path(tmp_path)
+
+    KisTokenManager(
+        _credentials(),
+        cache_path=cache_path,
+        client=client_factory(_json_handler(_token_payload())),
+        clock=lambda: NOW,
+    ).get_access_token()
+
+    assert cache_path.is_file()
 
 
 def test_oauth_uses_only_the_fixed_real_post_contract(

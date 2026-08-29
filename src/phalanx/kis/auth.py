@@ -27,7 +27,6 @@ from phalanx.kis.errors import KisHttpError, KisProtocolError, KisTimeoutError, 
 
 KIS_REAL_BASE_URL = "https://openapi.koreainvestment.com:9443"
 KIS_TOKEN_URL = f"{KIS_REAL_BASE_URL}/oauth2/tokenP"
-DEFAULT_TOKEN_CACHE_PATH = Path("runtime/token-cache/kis-access-token.json")
 
 _SEOUL = ZoneInfo("Asia/Seoul")
 _EXPIRATION_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
@@ -98,13 +97,24 @@ class KisTokenManager:
         self,
         credentials: KisCredentials,
         *,
-        cache_path: Path = DEFAULT_TOKEN_CACHE_PATH,
+        cache_path: Path | None = None,
         client: httpx.Client | None = None,
         timeout: httpx.Timeout | float = _DEFAULT_TIMEOUT,
         clock: Clock = _utc_now,
     ) -> None:
+        application_directories: tuple[Path, ...]
+        if cache_path is None:
+            home = Path.home()
+            phalanx_cache_directory = home / ".cache" / "phalanx"
+            token_cache_directory = phalanx_cache_directory / "token-cache"
+            resolved_cache_path = token_cache_directory / "kis-access-token.json"
+            application_directories = (phalanx_cache_directory, token_cache_directory)
+        else:
+            resolved_cache_path = Path(cache_path)
+            application_directories = (resolved_cache_path.parent,)
+
         self._credentials = credentials
-        self._cache = _TokenCache(Path(cache_path))
+        self._cache = _TokenCache(resolved_cache_path, application_directories)
         self._client = client
         self._timeout = timeout
         self._clock = clock
@@ -185,10 +195,11 @@ class KisTokenManager:
 
 
 class _TokenCache:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, application_directories: tuple[Path, ...]) -> None:
         self.path = path
         self.directory = path.parent
         self.lock_path = path.with_name(f"{path.name}.lock")
+        self.application_directories = application_directories
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -282,16 +293,14 @@ class _TokenCache:
             os.close(directory_fd)
 
     def _ensure_directory(self) -> None:
-        try:
-            if self.directory.parent.exists() and self.directory.parent.is_symlink():
-                raise TokenCacheError("The KIS token cache parent must not be a symbolic link.")
-            self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            directory_stat = os.lstat(self.directory)
-            _validate_private_directory_stat(directory_stat)
-        except TokenCacheError:
-            raise
-        except OSError:
-            raise TokenCacheError("The KIS token cache directory is unsafe.") from None
+        for directory in self.application_directories:
+            try:
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+                _validate_private_directory_stat(os.lstat(directory))
+            except TokenCacheError:
+                raise
+            except OSError:
+                raise TokenCacheError("The KIS token cache directory is unsafe.") from None
 
     def _ensure_lock_file(self) -> None:
         directory_fd = self._open_directory()
@@ -360,6 +369,7 @@ class _TokenCache:
 
     def _open_directory(self) -> int:
         try:
+            self._validate_application_directories()
             before = os.lstat(self.directory)
             _validate_private_directory_stat(before)
             directory_fd = os.open(
@@ -376,6 +386,10 @@ class _TokenCache:
             raise
         except OSError:
             raise TokenCacheError("The KIS token cache directory is unsafe.") from None
+
+    def _validate_application_directories(self) -> None:
+        for directory in self.application_directories:
+            _validate_private_directory_stat(os.lstat(directory))
 
     def _validate_named_file(self, directory_fd: int, name: str) -> os.stat_result:
         file_stat = self._stat_named_file(directory_fd, name)

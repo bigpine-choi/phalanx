@@ -63,11 +63,10 @@
 │   ├── test_cli.py
 │   └── test_security.py
 └── runtime/
-    ├── token-cache/
     └── snapshots/
 ```
 
-`runtime/`은 실행 시 생성하며 저장소에는 디렉터리나 `.gitkeep`도 커밋하지 않는다.
+접근토큰 캐시는 저장소 외부의 `~/.cache/phalanx/token-cache/kis-access-token.json`에 저장한다. `runtime/`은 스냅샷 저장 시 생성하며 저장소에는 디렉터리나 `.gitkeep`도 커밋하지 않는다.
 
 ## 3. 의존성
 
@@ -137,7 +136,7 @@ install -m 600 .env.example "$HOME/.config/phalanx/credentials.env"
 
 프로그램 시작 시 토큰을 안전하게 재사용하거나 새로 발급한다.
 
-1. `runtime/token-cache/`의 안전성을 확인하고 캐시 잠금을 획득한다.
+1. `~/.cache/phalanx/token-cache/kis-access-token.json`의 안전성을 확인하고 캐시 잠금을 획득한다.
 2. 앱 키의 SHA-256 지문이 캐시와 일치하고 만료까지 5분 이상 남았으면 토큰을 재사용한다.
 3. 캐시가 없거나 만료가 임박하면 `client_credentials`로 `/oauth2/tokenP`를 호출한다.
 4. `access_token_token_expired`를 권위 있는 만료시각으로 파싱하고 `expires_in`과 모순되면 프로토콜 오류로 처리한다.
@@ -148,10 +147,10 @@ install -m 600 .env.example "$HOME/.config/phalanx/credentials.env"
 
 권한을 넓게 생성한 뒤 `chmod`하는 방식을 사용하지 않는다.
 
-- 토큰 캐시 디렉터리는 처음부터 `Path.mkdir(mode=0o700)`로 생성한다. POSIX umask는 권한을 더 제거할 수만 있으므로 `0700`보다 넓게 생성되지 않는다.
+- 프로그램이 소유하는 `~/.cache/phalanx`와 `~/.cache/phalanx/token-cache`는 각각 처음부터 `Path.mkdir(mode=0o700)`로 생성한다. 기존 `~/.cache`의 권한은 변경하지 않는다. POSIX umask는 권한을 더 제거할 수만 있으므로 두 디렉터리는 `0700`보다 넓게 생성되지 않는다.
 - 토큰 파일, 잠금 파일, 원자 교체용 임시파일은 `os.open`의 `O_CREAT | O_EXCL`과 생성 모드 `0o600`으로 연다.
 - 임시파일에 JSON을 쓰고 flush와 `fsync`를 수행한 뒤 `os.replace`한다. 최종 파일은 임시파일의 `0600` 권한을 그대로 가진다.
-- 기존 캐시 경로가 심볼릭 링크이거나 소유자·권한 검증에 실패하면 사용하거나 자동 복구하지 않고 안전 오류로 중단한다.
+- 기존 application-owned 디렉터리나 캐시 경로가 심볼릭 링크이거나 소유자·권한 검증에 실패하면 사용하거나 자동 복구하지 않고 안전 오류로 중단한다.
 - 생성 직후 chmod에 의존하지 않는다는 사실과 디렉터리·토큰·임시파일 모드는 단위테스트에서 확인한다.
 
 ## 6. read-only HTTP 경계

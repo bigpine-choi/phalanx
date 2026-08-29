@@ -56,6 +56,18 @@ stat -c '%a %n' ~/.config/phalanx ~/.config/phalanx/credentials.env
 
 실제 값을 프로젝트 루트, 문서, 테스트 fixture, 커밋 메시지 또는 터미널 캡처에 기록하지 않습니다.
 
+## OAuth 토큰 캐시
+
+KIS 접근토큰 캐시의 기본 운영 위치도 저장소 외부로 고정합니다.
+
+```text
+~/.cache/phalanx/token-cache/kis-access-token.json
+```
+
+프로그램은 `~/.cache/phalanx`와 그 아래 `token-cache`를 필요할 때 생성하며 두 디렉터리를 생성 순간부터 `0700`으로 보호합니다. 기존 `~/.cache`의 권한은 변경하지 않습니다. 캐시 JSON, 잠금 파일과 원자 교체용 임시파일은 생성 순간부터 `0600`입니다.
+
+두 application-owned 디렉터리가 심볼릭 링크이거나, 현재 사용자 소유가 아니거나, 권한이 정확히 `0700`이 아니면 자동 복구나 `chmod` 없이 실패합니다. 현재 작업 디렉터리, 프로젝트의 `runtime/token-cache`, `.env`, `XDG_CACHE_HOME`을 기본 캐시 위치로 사용하지 않습니다. `runtime/` Git 제외 규칙은 방어 목적으로 유지합니다.
+
 ## CLI 계약
 
 후속 구현이 완료되면 기본 명령만으로 즉시 실전계좌 read-only 스냅샷을 수행합니다.

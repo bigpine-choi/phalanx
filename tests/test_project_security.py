@@ -80,6 +80,19 @@ def test_documentation_requires_private_credential_permissions() -> None:
     assert "자동 생성하지 않고" in plan
 
 
+def test_documentation_keeps_default_token_cache_outside_repository() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    plan = (ROOT / "docs" / "plans" / "kis-account-snapshot.md").read_text(encoding="utf-8")
+    external_cache = "~/.cache/phalanx/token-cache/kis-access-token.json"
+
+    for document in (readme, plan):
+        assert external_cache in document
+        assert "`runtime/token-cache/`의 안전성" not in document
+
+    assert "XDG_CACHE_HOME" in readme
+    assert "기존 `~/.cache`의 권한은 변경하지 않는다" in plan
+
+
 def test_automated_tests_disable_network_access() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
