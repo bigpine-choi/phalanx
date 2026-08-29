@@ -245,6 +245,62 @@ def test_existing_insecure_snapshot_directory_is_rejected(tmp_path: Path) -> Non
     assert not list(directory.iterdir())
 
 
+def test_existing_private_snapshot_directory_is_allowed(tmp_path: Path) -> None:
+    directory = tmp_path / "snapshots"
+    directory.mkdir(mode=0o700)
+    directory.chmod(0o700)
+
+    saved_path = save_snapshot(_snapshot(), directory)
+
+    assert saved_path.parent == directory
+    assert _mode(directory) == 0o700
+    assert _mode(saved_path) == 0o600
+
+
+def test_competing_insecure_directory_is_rejected_without_chmod_or_partial_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "snapshots"
+    original_mkdir = snapshot_storage.os.mkdir
+
+    def competing_mkdir(path: Path, mode: int) -> None:
+        assert Path(path) == directory
+        original_mkdir(path, 0o755)
+        Path(path).chmod(0o755)
+        raise FileExistsError
+
+    monkeypatch.setattr(snapshot_storage.os, "mkdir", competing_mkdir)
+
+    with pytest.raises(UnsafeSnapshotPathError, match="mode 0700"):
+        save_snapshot(_snapshot(), directory)
+
+    assert _mode(directory) == 0o755
+    assert not list(directory.iterdir())
+
+
+def test_competing_symbolic_link_directory_is_rejected_without_partial_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "snapshots"
+    target = tmp_path / "competing-target"
+    target.mkdir(mode=0o700)
+
+    def competing_mkdir(path: Path, mode: int) -> None:
+        assert Path(path) == directory
+        Path(path).symlink_to(target, target_is_directory=True)
+        raise FileExistsError
+
+    monkeypatch.setattr(snapshot_storage.os, "mkdir", competing_mkdir)
+
+    with pytest.raises(UnsafeSnapshotPathError, match="not a real directory"):
+        save_snapshot(_snapshot(), directory)
+
+    assert directory.is_symlink()
+    assert not list(target.iterdir())
+
+
 def test_default_store_uses_fixed_home_data_path_and_private_application_directories(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

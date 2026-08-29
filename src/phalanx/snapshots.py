@@ -53,14 +53,26 @@ def _assert_no_symlink_components(path: Path) -> None:
 
 def _validate_private_directory(path: Path) -> None:
     metadata = path.lstat()
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+    _validate_private_directory_stat(metadata, path)
+
+
+def _validate_directory_identity(metadata: os.stat_result, path: Path) -> None:
+    if not stat.S_ISDIR(metadata.st_mode):
         raise UnsafeSnapshotPathError(f"snapshot directory is not a real directory: {path}")
     if metadata.st_uid != os.geteuid():
         raise UnsafeSnapshotPathError(
             f"snapshot directory must be owned by the current user: {path}"
         )
+
+
+def _validate_private_directory_stat(metadata: os.stat_result, path: Path) -> None:
+    _validate_directory_identity(metadata, path)
     if stat.S_IMODE(metadata.st_mode) != PRIVATE_DIRECTORY_MODE:
         raise UnsafeSnapshotPathError(f"snapshot directory must have mode 0700: {path}")
+
+
+def _same_file(first: os.stat_result, second: os.stat_result) -> bool:
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
 
 def _ensure_private_directory(directory: Path) -> Path:
@@ -82,15 +94,39 @@ def _ensure_private_directory(directory: Path) -> Path:
         raise UnsafeSnapshotPathError(f"unsafe snapshot directory parent: {current}")
 
     for path in reversed(missing):
-        with suppress(FileExistsError):
+        created = False
+        try:
             os.mkdir(path, PRIVATE_DIRECTORY_MODE)
+            created = True
+        except FileExistsError:
+            pass
 
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags)
+        descriptor = -1
         try:
-            os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
+            before = path.lstat()
+            _validate_directory_identity(before, path)
+            descriptor = os.open(path, flags)
+            opened = os.fstat(descriptor)
+            _validate_directory_identity(opened, path)
+            if not _same_file(before, opened):
+                raise UnsafeSnapshotPathError(
+                    f"snapshot directory changed while it was opened: {path}"
+                )
+
+            if created:
+                os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
+                opened = os.fstat(descriptor)
+            _validate_private_directory_stat(opened, path)
+        except UnsafeSnapshotPathError:
+            raise
+        except OSError:
+            raise UnsafeSnapshotPathError(
+                f"snapshot directory could not be opened safely: {path}"
+            ) from None
         finally:
-            os.close(descriptor)
+            if descriptor >= 0:
+                os.close(descriptor)
 
     _assert_no_symlink_components(absolute_directory)
     _validate_private_directory(absolute_directory)
