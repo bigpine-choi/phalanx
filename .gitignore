@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Credentials and secrets
+.env
+.env.*
+!.env.example
+kis_devlp.yaml
+secrets/
+
+# Local account and runtime data
+runtime/
+logs/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Operating systems
+.DS_Store
+Thumbs.db
