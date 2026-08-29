@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import runpy
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
@@ -143,8 +143,8 @@ def test_success_output_contains_normalized_summary_positions_and_saved_path(
     for expected in (
         "한국투자증권 실전계좌 · READ ONLY",
         "5566****-**",
-        STARTED_AT.isoformat(),
-        COMPLETED_AT.isoformat(),
+        "2026-08-29 12:34:56 KST",
+        "2026-08-29 12:34:58 KST",
         "예수금 총액",
         "12,345,678,901,234,567,890.1234 원",
         "주문가능현금",
@@ -156,6 +156,8 @@ def test_success_output_contains_normalized_summary_positions_and_saved_path(
         "-123,456,789.8765 원",
         "총자산",
         "순자산",
+        "기타 자산·결제조정 (역산)",
+        "부채 등 차감액 (역산)",
         "SYNTHCLI1",
         "Synthetic CLI Equity",
         "12,345.6789",
@@ -168,6 +170,92 @@ def test_success_output_contains_normalized_summary_positions_and_saved_path(
     ):
         assert expected in output
     assert re.search(r"주문가능현금\s+0(?:\.0+)?", output) is None
+
+
+def test_query_times_are_displayed_in_kst_across_the_korean_date_boundary(
+    tmp_path: Path,
+) -> None:
+    query_started_at = datetime(2026, 8, 29, 14, 59, 59, tzinfo=UTC)
+    query_completed_at = datetime(2026, 8, 29, 15, 0, 1, tzinfo=UTC)
+    snapshot = _snapshot().model_copy(
+        update={
+            "query_started_at": query_started_at,
+            "query_completed_at": query_completed_at,
+        }
+    )
+    result = AccountSnapshotResult(
+        snapshot=snapshot,
+        saved_path=tmp_path / "snapshots" / "synthetic-snapshot.json",
+    )
+    stdout, _stderr, console, _error_console = _capture_consoles()
+
+    cli.render_snapshot_summary(result, console)
+
+    output = stdout.getvalue()
+    assert "2026-08-29 23:59:59 KST" in output
+    assert "2026-08-30 00:00:01 KST" in output
+    assert "+00:00" not in output
+    assert snapshot.query_started_at == query_started_at
+    assert snapshot.query_completed_at == query_completed_at
+
+
+@pytest.mark.parametrize(
+    (
+        "total_assets",
+        "net_assets",
+        "expected_other_adjustment",
+        "expected_liability_deduction",
+    ),
+    (
+        (Decimal("350"), Decimal("330"), Decimal("50"), Decimal("20")),
+        (Decimal("300"), Decimal("300"), Decimal("0"), Decimal("0")),
+        (Decimal("250"), Decimal("270"), Decimal("-50"), Decimal("-20")),
+    ),
+)
+def test_asset_reconciliation_uses_decimal_and_displays_signed_results(
+    tmp_path: Path,
+    total_assets: Decimal,
+    net_assets: Decimal,
+    expected_other_adjustment: Decimal,
+    expected_liability_deduction: Decimal,
+) -> None:
+    base_snapshot = _snapshot()
+    summary = AccountSummary(
+        deposit_total=Decimal("100"),
+        orderable_cash=None,
+        securities_evaluation_amount=Decimal("200"),
+        purchase_amount_total=Decimal("180"),
+        evaluation_amount_total=Decimal("200"),
+        profit_loss_total=Decimal("20"),
+        total_assets=total_assets,
+        net_assets=net_assets,
+    )
+    snapshot = base_snapshot.model_copy(update={"summary": summary})
+    result = AccountSnapshotResult(
+        snapshot=snapshot,
+        saved_path=tmp_path / "snapshots" / "synthetic-snapshot.json",
+    )
+    stdout, _stderr, console, _error_console = _capture_consoles()
+
+    other_adjustment, liability_deduction = cli._calculate_asset_reconciliation(summary)
+    cli.render_snapshot_summary(result, console)
+
+    assert isinstance(other_adjustment, Decimal)
+    assert isinstance(liability_deduction, Decimal)
+    assert other_adjustment == expected_other_adjustment
+    assert liability_deduction == expected_liability_deduction
+    output = stdout.getvalue()
+    assert re.search(
+        rf"기타 자산·결제조정 \(역산\)\s+{re.escape(format(expected_other_adjustment, ',f'))} 원",
+        output,
+    )
+    assert re.search(
+        rf"부채 등 차감액 \(역산\)\s+{re.escape(format(expected_liability_deduction, ',f'))} 원",
+        output,
+    )
+    summary_fields = snapshot.model_dump()["summary"]
+    assert "other_assets_and_settlement_adjustments" not in summary_fields
+    assert "liabilities_and_deductions" not in summary_fields
 
 
 def test_empty_account_is_a_normal_success_without_an_empty_table_error(tmp_path: Path) -> None:

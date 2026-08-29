@@ -7,11 +7,13 @@ import secrets
 import stat
 from contextlib import suppress
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from phalanx.domain import AccountSnapshot
 
 PRIVATE_DIRECTORY_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
+KOREA_TIMEZONE = ZoneInfo("Asia/Seoul")
 
 
 class SnapshotStorageError(RuntimeError):
@@ -31,7 +33,9 @@ def _random_identifier() -> str:
 
 
 def _snapshot_filename(snapshot: AccountSnapshot) -> str:
-    observed_at = snapshot.query_completed_at.strftime("%Y%m%dT%H%M%S%f%z")
+    observed_at = snapshot.query_completed_at.astimezone(KOREA_TIMEZONE).strftime(
+        "%Y%m%dT%H%M%S%f%z"
+    )
     return f"account_snapshot_{observed_at}_{_random_identifier()}.json"
 
 

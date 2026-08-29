@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from decimal import Decimal
 from enum import IntEnum
+from zoneinfo import ZoneInfo
 
 import typer
 from rich.console import Console
@@ -12,7 +14,7 @@ from rich.table import Table
 
 from phalanx.application import AccountSnapshotResult, run_production_snapshot
 from phalanx.config import ConfigError
-from phalanx.domain import AccountSnapshot
+from phalanx.domain import AccountSnapshot, AccountSummary
 from phalanx.kis.errors import (
     KisAuthError,
     KisBalanceAuthenticationError,
@@ -20,6 +22,8 @@ from phalanx.kis.errors import (
     KisBalanceParsingError,
 )
 from phalanx.snapshots import SnapshotStorageError
+
+KOREA_TIMEZONE = ZoneInfo("Asia/Seoul")
 
 
 class ExitCode(IntEnum):
@@ -62,19 +66,39 @@ def _format_money(value: Decimal) -> str:
     return f"{_format_decimal(value)} 원"
 
 
+def _format_korean_time(value: datetime) -> str:
+    return value.astimezone(KOREA_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S KST")
+
+
+def _calculate_asset_reconciliation(summary: AccountSummary) -> tuple[Decimal, Decimal]:
+    """Return presentation-only reverse-derived reconciliation amounts.
+
+    Neither value is a direct KIS field or a measure of cash availability.
+    """
+
+    other_assets_and_settlement_adjustments = (
+        summary.total_assets - summary.deposit_total - summary.securities_evaluation_amount
+    )
+    liabilities_and_deductions = summary.total_assets - summary.net_assets
+    return other_assets_and_settlement_adjustments, liabilities_and_deductions
+
+
 def render_snapshot_summary(result: AccountSnapshotResult, console: Console) -> None:
     """Render only normalized domain values after persistence has succeeded."""
 
     snapshot = result.snapshot
     summary = snapshot.summary
+    other_assets_and_settlement_adjustments, liabilities_and_deductions = (
+        _calculate_asset_reconciliation(summary)
+    )
     console.print("한국투자증권 실전계좌 · READ ONLY", style="bold green")
 
     overview = Table(show_header=False, box=None, pad_edge=False)
     overview.add_column("항목", style="bold")
     overview.add_column("값", justify="right")
     overview.add_row("계좌번호", snapshot.account_number_masked)
-    overview.add_row("조회 시작", snapshot.query_started_at.isoformat())
-    overview.add_row("조회 완료", snapshot.query_completed_at.isoformat())
+    overview.add_row("조회 시작", _format_korean_time(snapshot.query_started_at))
+    overview.add_row("조회 완료", _format_korean_time(snapshot.query_completed_at))
     overview.add_row("예수금 총액", _format_money(summary.deposit_total))
     overview.add_row("주문가능현금", "미제공")
     overview.add_row("주식평가액", _format_money(summary.securities_evaluation_amount))
@@ -83,6 +107,11 @@ def render_snapshot_summary(result: AccountSnapshotResult, console: Console) -> 
     overview.add_row("평가손익", _format_money(summary.profit_loss_total))
     overview.add_row("총자산", _format_money(summary.total_assets))
     overview.add_row("순자산", _format_money(summary.net_assets))
+    overview.add_row(
+        "기타 자산·결제조정 (역산)",
+        _format_money(other_assets_and_settlement_adjustments),
+    )
+    overview.add_row("부채 등 차감액 (역산)", _format_money(liabilities_and_deductions))
     overview.add_row("0수량 잔고", f"{len(snapshot.zero_quantity_balances)}건")
     overview.add_row("조회 페이지", f"{snapshot.page_count}페이지")
     console.print(overview)

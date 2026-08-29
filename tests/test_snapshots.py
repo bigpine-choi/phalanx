@@ -4,7 +4,7 @@ import json
 import os
 import re
 import stat
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -113,6 +113,25 @@ def test_save_snapshot_writes_utf8_private_decimal_string_json(tmp_path: Path) -
     assert "12345678-01" not in serialized
     assert "authorization" not in serialized.lower()
     assert "access_token" not in serialized.lower()
+
+
+def test_snapshot_filename_uses_kst_when_utc_and_korean_dates_differ(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    query_completed_at = datetime(2026, 8, 29, 15, 0, 1, 123456, tzinfo=UTC)
+    snapshot = _snapshot().model_copy(update={"query_completed_at": query_completed_at})
+    monkeypatch.setattr(snapshot_storage, "_random_identifier", lambda: "fixedidentifier")
+
+    saved_path = save_snapshot(snapshot, tmp_path / "snapshots")
+
+    assert saved_path.name == "account_snapshot_20260830T000001123456+0900_fixedidentifier.json"
+    payload = json.loads(saved_path.read_text(encoding="utf-8"))
+    serialized_completed_at = datetime.fromisoformat(
+        payload["query_completed_at"].replace("Z", "+00:00")
+    )
+    assert serialized_completed_at == query_completed_at
+    assert snapshot.query_completed_at == query_completed_at
 
 
 def test_temporary_file_is_private_from_the_time_it_is_written(
