@@ -54,8 +54,8 @@ class AccountPosition(_FrozenDomainModel):
     product_name: str = Field(min_length=1, max_length=200)
     holding_quantity: NonNegativeDecimal
     sellable_quantity: NonNegativeDecimal
-    purchase_amount: DecimalValue
-    evaluation_amount: DecimalValue
+    purchase_amount: NonNegativeDecimal
+    evaluation_amount: NonNegativeDecimal
     profit_loss: DecimalValue
 
     @field_validator("stock_code", "product_name", mode="before")
@@ -65,15 +65,21 @@ class AccountPosition(_FrozenDomainModel):
             return value.strip()
         return value
 
+    @model_validator(mode="after")
+    def _require_sellable_quantity_within_holding(self) -> Self:
+        if self.sellable_quantity > self.holding_quantity:
+            raise ValueError("sellable_quantity must not exceed holding_quantity")
+        return self
+
 
 class AccountSummary(_FrozenDomainModel):
     """Normalized account totals without inferring orderable cash."""
 
     deposit_total: DecimalValue
     orderable_cash: None = None
-    securities_evaluation_amount: DecimalValue
-    purchase_amount_total: DecimalValue
-    evaluation_amount_total: DecimalValue
+    securities_evaluation_amount: NonNegativeDecimal
+    purchase_amount_total: NonNegativeDecimal
+    evaluation_amount_total: NonNegativeDecimal
     profit_loss_total: DecimalValue
     total_assets: DecimalValue
     net_assets: DecimalValue

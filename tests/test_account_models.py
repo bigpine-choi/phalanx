@@ -23,11 +23,12 @@ QUERY_COMPLETED_AT = datetime(2026, 8, 29, 12, 0, 1, 123456, tzinfo=KST)
 
 
 def _position(stock_code: str = "005930", holding_quantity: str = "10") -> AccountPosition:
+    quantity = Decimal(holding_quantity)
     return AccountPosition(
         stock_code=stock_code,
         product_name="삼성전자",
-        holding_quantity=Decimal(holding_quantity),
-        sellable_quantity=Decimal("8" if holding_quantity != "0" else "0"),
+        holding_quantity=quantity,
+        sellable_quantity=min(quantity, Decimal("8")),
         purchase_amount=Decimal("700000" if holding_quantity != "0" else "0"),
         evaluation_amount=Decimal("750000" if holding_quantity != "0" else "0"),
         profit_loss=Decimal("50000" if holding_quantity != "0" else "0"),
@@ -115,6 +116,56 @@ def test_decimal_values_reject_float_and_serialize_as_json_strings() -> None:
     assert payload["positions"][0]["holding_quantity"] == "10"
     assert payload["positions"][0]["purchase_amount"] == "700000"
     assert payload["zero_quantity_balances"][0]["holding_quantity"] == "0"
+
+
+@pytest.mark.parametrize("field_name", ("purchase_amount", "evaluation_amount"))
+def test_position_purchase_and_evaluation_amounts_must_be_non_negative(
+    field_name: str,
+) -> None:
+    values = _position().model_dump()
+    values[field_name] = Decimal("-0.01")
+
+    with pytest.raises(ValidationError):
+        AccountPosition(**values)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    (
+        "securities_evaluation_amount",
+        "purchase_amount_total",
+        "evaluation_amount_total",
+    ),
+)
+def test_summary_evaluation_and_purchase_amounts_must_be_non_negative(
+    field_name: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        _summary(**{field_name: Decimal("-0.01")})
+
+
+def test_sellable_quantity_must_not_exceed_holding_quantity() -> None:
+    values = _position().model_dump()
+    values["holding_quantity"] = Decimal("7")
+    values["sellable_quantity"] = Decimal("8")
+
+    with pytest.raises(ValidationError, match="must not exceed holding_quantity"):
+        AccountPosition(**values)
+
+
+def test_losses_and_negative_deposit_total_are_allowed() -> None:
+    position_values = _position().model_dump()
+    position_values["profit_loss"] = Decimal("-50000")
+
+    position = AccountPosition(**position_values)
+    summary = _summary(
+        deposit_total=Decimal("-1234567"),
+        profit_loss_total=Decimal("-50000"),
+    )
+
+    assert position.profit_loss == Decimal("-50000")
+    assert summary.profit_loss_total == Decimal("-50000")
+    assert summary.deposit_total == Decimal("-1234567")
 
 
 def test_balance_collections_enforce_holding_quantity_invariants() -> None:
