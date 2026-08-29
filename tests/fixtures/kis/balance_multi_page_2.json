@@ -1,0 +1,39 @@
+{
+  "rt_cd": "0",
+  "msg_cd": "SYNTHETIC_SUCCESS",
+  "msg1": "synthetic final balance page",
+  "ctx_area_fk100": "",
+  "ctx_area_nk100": "",
+  "output1": [
+    {
+      "pdno": "SYNTH002",
+      "prdt_name": "Synthetic Second Equity",
+      "hldg_qty": "2",
+      "ord_psbl_qty": "2",
+      "pchs_amt": "2000.00",
+      "evlu_amt": "2200.00",
+      "evlu_pfls_amt": "200.00",
+      "synthetic_page": "two"
+    },
+    {
+      "pdno": "SYNTHZERO",
+      "prdt_name": "Synthetic Zero Balance",
+      "hldg_qty": "0",
+      "ord_psbl_qty": "0",
+      "pchs_amt": "0",
+      "evlu_amt": "0",
+      "evlu_pfls_amt": "0"
+    }
+  ],
+  "output2": [
+    {
+      "dnca_tot_amt": "100000.00",
+      "scts_evlu_amt": "5500.00",
+      "pchs_amt_smtl_amt": "5000.00",
+      "evlu_amt_smtl_amt": "5500.00",
+      "evlu_pfls_smtl_amt": "500.00",
+      "tot_evlu_amt": "105500.00",
+      "nass_amt": "105500.00"
+    }
+  ]
+}

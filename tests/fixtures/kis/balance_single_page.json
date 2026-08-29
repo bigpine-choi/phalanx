@@ -1,0 +1,56 @@
+{
+  "rt_cd": "0",
+  "msg_cd": "SYNTHETIC_SUCCESS",
+  "msg1": "synthetic balance response",
+  "ctx_area_fk100": "SYNTHETIC-FK-001",
+  "ctx_area_nk100": "SYNTHETIC-NK-001",
+  "output1": [
+    {
+      "pdno": "TEST0001",
+      "prdt_name": "Synthetic Equity One",
+      "hldg_qty": "0000000002.5000",
+      "ord_psbl_qty": "+1.2500",
+      "pchs_amt": "123456789012345678901234567890.1234",
+      "evlu_amt": "123456789012345678901234567999.9999",
+      "evlu_pfls_amt": "-000000000000000000000000000109.8765",
+      "synthetic_extra": "preserve-position-extra"
+    },
+    {
+      "pdno": "TEST0002",
+      "prdt_name": "Synthetic Zero Balance",
+      "hldg_qty": "0.0000",
+      "ord_psbl_qty": "+0",
+      "pchs_amt": "000",
+      "evlu_amt": "0.0",
+      "evlu_pfls_amt": "-0.00"
+    },
+    {
+      "pdno": "",
+      "prdt_name": "",
+      "hldg_qty": "",
+      "ord_psbl_qty": "0",
+      "pchs_amt": "000.00",
+      "evlu_amt": "",
+      "evlu_pfls_amt": "+0.0",
+      "placeholder_note": "synthetic-empty-account-row"
+    }
+  ],
+  "output2": [
+    {
+      "dnca_tot_amt": "-0000010.5000",
+      "scts_evlu_amt": "123456789012345678901234567999.9999",
+      "pchs_amt_smtl_amt": "123456789012345678901234567890.1234",
+      "evlu_amt_smtl_amt": "123456789012345678901234567999.9999",
+      "evlu_pfls_smtl_amt": "-109.8765",
+      "tot_evlu_amt": "-42.125",
+      "nass_amt": "-0000001.500",
+      "synthetic_summary_extra": {
+        "note": "preserve-summary-extra",
+        "count": 1
+      }
+    }
+  ],
+  "synthetic_top_level_extra": {
+    "note": "preserve-top-level-extra"
+  }
+}
