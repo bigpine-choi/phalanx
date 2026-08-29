@@ -1,0 +1,30 @@
+{
+  "rt_cd": "0",
+  "msg_cd": "SYNTHETIC_SUCCESS",
+  "msg1": "synthetic first balance page",
+  "ctx_area_fk100": "SYNTHETIC-FK-PAGE-2",
+  "ctx_area_nk100": "SYNTHETIC-NK-PAGE-2",
+  "output1": [
+    {
+      "pdno": "SYNTH001",
+      "prdt_name": "Synthetic First Equity",
+      "hldg_qty": "3",
+      "ord_psbl_qty": "2",
+      "pchs_amt": "3000.00",
+      "evlu_amt": "3300.00",
+      "evlu_pfls_amt": "300.00",
+      "synthetic_page": "one"
+    }
+  ],
+  "output2": [
+    {
+      "dnca_tot_amt": "100000.00",
+      "scts_evlu_amt": "5500.00",
+      "pchs_amt_smtl_amt": "5000.00",
+      "evlu_amt_smtl_amt": "5500.00",
+      "evlu_pfls_smtl_amt": "500.00",
+      "tot_evlu_amt": "105500.00",
+      "nass_amt": "105500.00"
+    }
+  ]
+}

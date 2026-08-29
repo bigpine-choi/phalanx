@@ -371,4 +371,6 @@ Mock 테스트와 별도로 KIS 기능 구현 완료 후 개발자가 로컬에�
 5. `feat: expose read-only account snapshot CLI`
    - 기본 명령, 명시적 별칭, Rich 출력, 통합 Mock 테스트와 README 마무리
 
+현재 4번은 단일 페이지 엄격 파서(4A)와 실전 read-only HTTP 연속조회(4B)로 나누어 완료했으며, 5번 스냅샷 저장 오케스트레이션과 CLI는 아직 시작하지 않았다.
+
 각 기능 커밋에는 해당 단위테스트를 함께 포함하며 실제 자격증명이나 실제 API 응답을 커밋하지 않는다.

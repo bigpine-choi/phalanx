@@ -59,3 +59,23 @@ class KisApiResponseError(KisBalanceParsingError):
 
 class BalanceDomainInvariantError(KisBalanceParsingError):
     """Parsed values violated an existing immutable account-domain invariant."""
+
+
+class KisBalanceClientError(RuntimeError):
+    """Base failure for the read-only real-account balance HTTP boundary."""
+
+
+class KisBalanceHttpError(KisBalanceClientError):
+    """A balance HTTP exchange failed without exposing its request URL or body."""
+
+
+class KisBalanceTimeoutError(KisBalanceHttpError):
+    """A balance request exceeded its explicit timeout."""
+
+
+class KisBalanceProtocolError(KisBalanceClientError):
+    """Balance pagination or transport data violated the fixed KIS contract."""
+
+
+class KisBalanceAuthenticationError(KisBalanceClientError):
+    """A balance page remained unauthorized after its one allowed reauthentication."""

@@ -135,6 +135,7 @@ class RawEvidenceRecord(_FrozenDomainModel):
 class ApiPageEvidence(_FrozenDomainModel):
     """Sanitized evidence retained for one successfully fetched balance page."""
 
+    page_number: int = Field(default=1, ge=1)
     received_at: datetime
     http_status: int = Field(ge=100, le=599)
     tr_cont: str
@@ -162,6 +163,13 @@ class SnapshotEvidence(_FrozenDomainModel):
     pages: tuple[ApiPageEvidence, ...] = Field(min_length=1)
     summary_consistency_warnings: tuple[str, ...] = ()
 
+    @model_validator(mode="after")
+    def _require_contiguous_page_numbers(self) -> Self:
+        page_numbers = tuple(page.page_number for page in self.pages)
+        if page_numbers != tuple(range(1, len(self.pages) + 1)):
+            raise ValueError("evidence page numbers must be contiguous and start at one")
+        return self
+
 
 class AccountSnapshot(_FrozenDomainModel):
     """A complete immutable account observation."""
@@ -176,6 +184,18 @@ class AccountSnapshot(_FrozenDomainModel):
     positions: tuple[AccountPosition, ...] = ()
     zero_quantity_balances: tuple[AccountPosition, ...] = ()
     evidence: SnapshotEvidence
+
+    @property
+    def page_count(self) -> int:
+        """Return the number of successfully completed balance pages."""
+
+        return len(self.evidence.pages)
+
+    @property
+    def summaries_differed_across_pages(self) -> bool:
+        """Report whether pagination observed more than one account summary."""
+
+        return bool(self.evidence.summary_consistency_warnings)
 
     @field_validator("query_started_at", "query_completed_at")
     @classmethod

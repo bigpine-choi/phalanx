@@ -214,6 +214,15 @@ def test_query_completion_must_not_precede_start() -> None:
         _snapshot(query_completed_at=QUERY_STARTED_AT - timedelta(microseconds=1))
 
 
+def test_evidence_page_numbers_are_positive_contiguous_and_start_at_one() -> None:
+    first_page = _evidence().pages[0]
+
+    with pytest.raises(ValidationError, match="contiguous and start at one"):
+        SnapshotEvidence(pages=(first_page, first_page))
+    with pytest.raises(ValidationError):
+        ApiPageEvidence(**{**first_page.model_dump(), "page_number": 0})
+
+
 @pytest.mark.parametrize(
     "masked_account",
     ("12345678-01", "1234****-01", "12345***-**", "1234****-***"),
