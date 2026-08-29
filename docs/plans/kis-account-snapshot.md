@@ -75,7 +75,7 @@
 
 - `httpx`: 동기 REST 클라이언트, 타임아웃, 테스트 전송 계층 주입
 - `pydantic`: 검증된 frozen 모델과 `Decimal` 직렬화
-- `pydantic-settings`: `.env` 설정과 `SecretStr`
+- `pydantic-settings`: 명시적으로 전달된 외부 자격증명 매핑 검증과 `SecretStr`; 현재 작업 디렉터리의 dotenv 자동 탐색은 사용하지 않음
 - `typer`: 기본 명령과 명시적 하위 명령 별칭
 - `rich`: 사람이 읽을 수 있는 계좌 요약과 잔고 표
 - `filelock`: 동일 자격증명의 동시 토큰 갱신 직렬화
@@ -100,9 +100,9 @@ balance endpoint: GET /uapi/domestic-stock/v1/trading/inquire-balance
 balance TR ID: TTTC8434R
 ```
 
-URL과 TR ID는 코드 상수이며 `.env`에서 재정의하지 못하게 한다. 환경 열거형과 `--environment` 옵션은 만들지 않는다.
+URL과 TR ID는 코드 상수이며 자격증명 파일에서 재정의하지 못하게 한다. 환경 열거형과 `--environment` 옵션은 만들지 않는다.
 
-`.env.example`에는 설명과 빈 값만 둔다.
+`.env.example`에는 설명과 빈 값만 둔다. 이 파일은 변수 계약 문서이며 실제 값을 입력하거나 프로젝트 루트의 `.env`로 복사하지 않는다.
 
 ```dotenv
 PHALANX_KIS_APP_KEY=
@@ -110,7 +110,28 @@ PHALANX_KIS_APP_SECRET=
 PHALANX_KIS_ACCOUNT_NUMBER=
 ```
 
+실제 운영 자격증명의 고정 기본 위치는 저장소 외부의 `~/.config/phalanx/credentials.env`다. 프로그램은 현재 작업 디렉터리나 프로젝트 루트에서 `.env`를 탐색하거나 읽지 않는다. 외부 자격증명 경로가 없으면 디렉터리나 파일을 자동 생성하지 않고, 비밀값이 포함되지 않은 안전한 설정·권한 안내만 출력한 뒤 실패한다.
+
+README와 파일 부재 오류는 다음 최초 1회 준비 절차를 안내한다. `credentials.env`를 만든 다음 사용자가 외부 파일을 직접 편집한다.
+
+```bash
+install -d -m 700 "$HOME/.config/phalanx"
+install -m 600 .env.example "$HOME/.config/phalanx/credentials.env"
+```
+
+두 번째 명령이 기존 파일을 덮어쓸 수 있음을 함께 경고하며, 프로그램 자체는 이 명령을 실행하거나 경로를 생성하지 않는다.
+
+자격증명 로더는 다음 순서로 경계를 검증한 뒤에만 파일을 연다.
+
+1. `~/.config/phalanx`와 `credentials.env`를 `lstat`하여 심볼릭 링크를 거부한다.
+2. 디렉터리와 파일이 현재 유효 사용자 소유인지 확인한다.
+3. 디렉터리가 실제 디렉터리이고 권한이 정확히 `0700`인지 확인한다.
+4. 자격증명이 일반 파일이고 권한이 정확히 `0600`인지 확인한다.
+5. 명시적으로 검증한 파일만 읽어 키-값 매핑을 만들고 Pydantic 모델에 전달한다. `env_file=".env"`나 dotenv 자동 탐색을 사용하지 않는다.
+
 계좌번호는 `8자리-2자리` 형식을 검증하고 API 요청 시 앞 8자리 `CANO`와 뒤 2자리 `ACNT_PRDT_CD`로 분리한다. 설정 객체에서는 앱 키와 앱 시크릿을 `SecretStr`로 보관하며 repr, 로그, 검증 오류에 원문이 나오지 않게 한다.
+
+테스트는 기본 자격증명 로더를 호출하지 않는다. `monkeypatch`로 주입한 임시 환경변수 또는 합성 매핑에서 직접 만든 설정 객체만 사용하며 실제 홈 디렉터리의 파일에 접근하지 않는다.
 
 ## 5. OAuth 및 토큰 캐시
 
@@ -284,7 +305,11 @@ uv run phalanx account snapshot
 
 - 실전용 변수 세 개만 허용하고 실제 값 없이 설정 오류가 안전하게 표시되는지
 - 모의 URL, 모의 TR ID, 환경 옵션이 코드 계약에 없는지
-- `.env`, 토큰, `runtime/`이 Git에서 제외되고 `.env.example`만 포함되는지
+- 프로젝트 루트 `.env`, 토큰, `runtime/`이 Git에서 제외되고 `.env.example`만 포함되는지
+- 프로그램이 프로젝트 루트 `.env`를 탐색하거나 읽지 않는지
+- 외부 자격증명 파일 부재 시 아무 경로도 생성하지 않고 안전 안내 후 실패하는지
+- 외부 디렉터리·파일의 소유자, 일반 파일 여부, 심볼릭 링크 거부와 정확한 `0700`/`0600` 권한 검증
+- 테스트가 실제 `~/.config/phalanx/credentials.env`를 읽지 않고 임시 환경변수 또는 합성 설정만 사용하는지
 - 계좌번호, 앱 키, 앱 시크릿, 토큰이 stdout, stderr, repr, 예외, JSON에 없는지
 - OAuth POST와 잔고 GET 이외의 메서드·경로가 전송 전에 차단되는지
 
@@ -326,11 +351,11 @@ uv run phalanx account snapshot
 - `deposit_total`과 `orderable_cash`의 독립성
 - 기본 명령과 명시적 별칭의 동일 동작
 - 마스킹과 사람이 읽을 수 있는 출력
-- 실제 `.env` 없이 전체 테스트 통과
+- 실제 외부 자격증명 파일과 프로젝트 루트 `.env` 없이 전체 테스트 통과
 
 ## 13. 수동 read-only 스모크 테스트
 
-Mock 테스트와 별도로 KIS 기능 구현 완료 후 개발자가 로컬에서만 수행한다. README에 자격증명 준비, Git 제외 확인, `uv run phalanx` 실행, 마스킹·예수금 명칭·미산정 주문가능현금·스냅샷 비밀정보 부재·보유종목 대조 절차를 기록한다.
+Mock 테스트와 별도로 KIS 기능 구현 완료 후 개발자가 로컬에서만 수행한다. README에 저장소 외부 자격증명 파일의 안전한 생성과 `0700`/`0600` 확인, 루트 `.env` 부재 확인, `uv run phalanx` 실행, 마스킹·예수금 명칭·미산정 주문가능현금·스냅샷 비밀정보 부재·보유종목 대조 절차를 기록한다.
 
 이 테스트는 주문 없이 잔고조회만 수행한다. 자동 테스트와 CI에서는 절대 실행하지 않으며 실제 API 호출이 필요한 pytest marker도 만들지 않는다.
 

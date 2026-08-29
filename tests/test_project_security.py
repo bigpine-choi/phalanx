@@ -48,6 +48,38 @@ def test_env_example_has_only_empty_real_account_settings() -> None:
     }
 
 
+def test_documentation_requires_external_credentials_file() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    plan = (ROOT / "docs" / "plans" / "kis-account-snapshot.md").read_text(encoding="utf-8")
+
+    assert "~/.config/phalanx/credentials.env" in readme
+    assert "~/.config/phalanx/credentials.env" in plan
+    assert "프로젝트 루트의 `.env` 파일은 저장하거나 읽지 않습니다" in readme
+    assert "cp .env.example .env" not in readme
+    assert "프로젝트 루트에서 `.env`를 탐색하거나 읽지 않는다" in plan
+    assert "dotenv 자동 탐색을 사용하지 않는다" in plan
+
+    setup_commands = (
+        'install -d -m 700 "$HOME/.config/phalanx"',
+        'install -m 600 .env.example "$HOME/.config/phalanx/credentials.env"',
+    )
+    for command in setup_commands:
+        assert command in readme
+        assert command in plan
+
+
+def test_documentation_requires_private_credential_permissions() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    plan = (ROOT / "docs" / "plans" / "kis-account-snapshot.md").read_text(encoding="utf-8")
+
+    for document in (readme, plan):
+        assert "0700" in document or "`700`" in document
+        assert "0600" in document or "`600`" in document
+
+    assert "자격증명 경로가 없으면" in plan
+    assert "자동 생성하지 않고" in plan
+
+
 def test_automated_tests_disable_network_access() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
