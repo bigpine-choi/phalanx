@@ -37,19 +37,30 @@ def build_price_panel_signal_windows(
     if len(panel.dates) < required_prices:
         raise InsufficientAllocationObservationsError(len(panel.dates), required_prices)
 
+    matrix = build_price_panel_return_matrix(panel)
+    return _build_signal_windows(
+        stock_codes=matrix.stock_codes,
+        return_dates=matrix.dates,
+        return_values=matrix.values,
+        minimum_observations=config.minimum_training_returns,
+        maximum_observations=config.maximum_training_returns,
+        rebalance_interval=config.rebalance_interval,
+    )
+
+
+def build_price_panel_return_matrix(panel: AlignedPricePanel) -> AlignedReturnMatrix:
+    """Calculate the one shared close-to-close Decimal matrix from an aligned panel."""
+
     calculation_context = Context(
         prec=_ALLOCATION_DECIMAL_PRECISION,
         rounding=ROUND_HALF_EVEN,
     )
     with localcontext(calculation_context):
         return_values = _close_returns(panel.close_prices)
-    return _build_signal_windows(
+    return AlignedReturnMatrix(
         stock_codes=panel.stock_codes,
-        return_dates=panel.dates[1:],
-        return_values=return_values,
-        minimum_observations=config.minimum_training_returns,
-        maximum_observations=config.maximum_training_returns,
-        rebalance_interval=config.rebalance_interval,
+        dates=panel.dates[1:],
+        values=return_values,
     )
 
 
@@ -121,6 +132,7 @@ def _build_signal_windows(
 
 __all__ = [
     "AllocationSignalWindow",
+    "build_price_panel_return_matrix",
     "build_price_panel_signal_windows",
     "build_return_matrix_signal_windows",
 ]

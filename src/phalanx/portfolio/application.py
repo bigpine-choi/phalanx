@@ -13,6 +13,8 @@ from phalanx.domain import (
     AlignedReturnMatrix,
     AllocationBacktestConfig,
     AllocationResearchTrial,
+    ConstrainedErcResearchTrial,
+    ConstrainedErcSolverConfig,
     DynamicRiskModelConfig,
     HistoricalUniverseAnalysis,
     KoreanStock,
@@ -24,6 +26,14 @@ from phalanx.market_data.service import StockDailyBars
 from phalanx.portfolio.allocation_policies import AllocationPolicy
 from phalanx.portfolio.allocation_research import conduct_allocation_research
 from phalanx.portfolio.allocation_trial_registry import JsonAllocationTrialRegistry
+from phalanx.portfolio.constrained_erc_research import (
+    ConstrainedErcRiskEstimator,
+    ConstrainedErcScenarioSolver,
+    conduct_constrained_erc_research,
+)
+from phalanx.portfolio.constrained_erc_trial_registry import (
+    JsonConstrainedErcTrialRegistry,
+)
 from phalanx.portfolio.errors import HistoricalReportStockOrderError
 from phalanx.portfolio.performance import analyze_historical_universe
 from phalanx.portfolio.report_storage import save_historical_report
@@ -59,6 +69,14 @@ class RiskModelResearchApplicationResult:
     """One completed or failed dynamic-risk-model trial after persistence."""
 
     trial: RiskModelResearchTrial
+    saved_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class ConstrainedErcResearchApplicationResult:
+    """One persisted seven-policy constrained-ERC research trial."""
+
+    trial: ConstrainedErcResearchTrial
     saved_path: Path
 
 
@@ -224,6 +242,53 @@ def run_production_risk_model_research(
     return RiskModelResearchApplicationResult(trial=trial, saved_path=saved_path)
 
 
+def run_production_constrained_erc_research(
+    start: date,
+    end: date,
+    output_dir: Path,
+    *,
+    allocation_config: AllocationBacktestConfig | None = None,
+    risk_model_config: DynamicRiskModelConfig | None = None,
+    solver_config: ConstrainedErcSolverConfig | None = None,
+    estimator: ConstrainedErcRiskEstimator | None = None,
+    solver: ConstrainedErcScenarioSolver | None = None,
+    credentials_path: Path | None = None,
+    token_cache_path: Path | None = None,
+    universe_path: Path | None = None,
+    transport: httpx.BaseTransport | None = None,
+    rate_limit_callback: KisRateLimitCallback | None = None,
+    request_pacer: KisRequestPacer | None = None,
+    trial_id_factory: Callable[[], str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> ConstrainedErcResearchApplicationResult:
+    """Fetch once, run seven shared-condition policies, and persist one trial."""
+
+    histories = run_production_universe_market_data(
+        start,
+        end,
+        credentials_path=credentials_path,
+        token_cache_path=token_cache_path,
+        universe_path=universe_path,
+        transport=transport,
+        rate_limit_callback=rate_limit_callback,
+        request_pacer=request_pacer,
+    )
+    trial = conduct_constrained_erc_research(
+        histories,
+        start,
+        end,
+        allocation_config=allocation_config,
+        risk_model_config=risk_model_config,
+        solver_config=solver_config,
+        estimator=estimator,
+        solver=solver,
+        trial_id_factory=trial_id_factory,
+        clock=clock,
+    )
+    saved_path = JsonConstrainedErcTrialRegistry(output_dir).save(trial)
+    return ConstrainedErcResearchApplicationResult(trial=trial, saved_path=saved_path)
+
+
 def _stocks_in_matrix_order(
     histories: tuple[StockDailyBars, ...],
     matrix: AlignedReturnMatrix,
@@ -238,10 +303,12 @@ def _stocks_in_matrix_order(
 
 __all__ = [
     "AllocationResearchApplicationResult",
+    "ConstrainedErcResearchApplicationResult",
     "HistoricalReportResult",
     "RiskModelResearchApplicationResult",
     "run_production_aligned_returns",
     "run_production_allocation_research",
+    "run_production_constrained_erc_research",
     "run_production_historical_report",
     "run_production_risk_model_research",
 ]

@@ -19,12 +19,16 @@ from rich.table import Table
 from phalanx.application import AccountSnapshotResult, run_production_snapshot
 from phalanx.config import ConfigError
 from phalanx.domain import (
+    CONSTRAINED_ERC_POLICY_ORDER,
     SCENARIO_KIND_ORDER,
     AccountSnapshot,
     AccountSummary,
     AlignedReturnMatrix,
     AllocationPolicyOutcomeStatus,
     AllocationTrialStatus,
+    ConstrainedErcBoundFlag,
+    ConstrainedErcOutcomeStatus,
+    ConstrainedErcResearchStatus,
     CovarianceScenario,
     DailyBar,
     DownsideStressMetadata,
@@ -52,15 +56,21 @@ from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
 from phalanx.portfolio.application import (
     AllocationResearchApplicationResult,
+    ConstrainedErcResearchApplicationResult,
     HistoricalReportResult,
     RiskModelResearchApplicationResult,
     run_production_aligned_returns,
     run_production_allocation_research,
+    run_production_constrained_erc_research,
     run_production_historical_report,
     run_production_risk_model_research,
 )
+from phalanx.portfolio.constrained_erc_trial_registry import (
+    safe_constrained_erc_failure_display,
+)
 from phalanx.portfolio.errors import (
     AllocationTrialStorageError,
+    ConstrainedErcTrialStorageError,
     HistoricalReportError,
     PortfolioAnalysisError,
     RiskModelTrialStorageError,
@@ -506,6 +516,140 @@ def render_risk_model_research_start(
     console.print(f"출력 디렉터리: {output_dir}")
 
 
+def render_constrained_erc_research_start(
+    start: str,
+    end: str,
+    output_dir: Path,
+    console: Console,
+) -> None:
+    """Announce the read-only request before credentials or network work."""
+
+    console.print("Constrained ERC 연구 시작 · KIS READ ONLY", style="bold green")
+    console.print("조회 대상: 활성 유니버스")
+    console.print(f"시작일: {start}")
+    console.print(f"종료일: {end}")
+    console.print(f"출력 디렉터리: {output_dir}")
+    console.print("current-universe conditional allocation-only")
+    console.print("주문 미전송")
+
+
+def render_constrained_erc_research_result(
+    result: ConstrainedErcResearchApplicationResult,
+    console: Console,
+) -> None:
+    """Render seven policy outcomes in preregistered order without a winner."""
+
+    outcomes_by_id = {outcome.policy_id: outcome for outcome in result.trial.policy_outcomes}
+    console.print("Constrained ERC 독립 scenario 및 control 비교 · READ ONLY", style="bold")
+    if result.trial.common_failure is not None:
+        common_code, common_reason = safe_constrained_erc_failure_display(
+            result.trial.common_failure.failure
+        )
+        console.print(f"공통 실패 단계: {result.trial.common_failure.stage.value}")
+        console.print(f"공통 실패 코드: {common_code}")
+        console.print(f"공통 실패 사유: {common_reason}")
+    for policy_id in CONSTRAINED_ERC_POLICY_ORDER:
+        outcome = outcomes_by_id[policy_id]
+        table = Table(title=policy_id)
+        table.add_column("항목", style="bold")
+        table.add_column("값", justify="right")
+        if outcome.status is ConstrainedErcOutcomeStatus.SUCCEEDED and outcome.result is not None:
+            policy_result = outcome.result
+            target_weights = tuple(
+                weight
+                for record in policy_result.rebalances
+                for weight in record.target.target_weights
+            )
+            drift_cap_days = sum(
+                any(weight > Decimal("0.20") for weight in weights)
+                for weights in policy_result.realized_weights
+            )
+            dispersions = tuple(
+                target.diagnostics_after_reconciliation.free_asset_rc_dispersion
+                for target in outcome.erc_targets
+                if target.diagnostics_after_reconciliation.free_asset_rc_dispersion is not None
+            )
+            table.add_row("상태", "성공")
+            table.add_row(
+                "실제 평가기간",
+                f"{policy_result.dates[0].isoformat()}~{policy_result.dates[-1].isoformat()}",
+            )
+            table.add_row("리밸런싱 횟수", f"{len(policy_result.rebalances)}회")
+            table.add_row("총수익률", format(policy_result.total_return, ".2%"))
+            table.add_row("연환산수익률", format(policy_result.annualized_return, ".2%"))
+            table.add_row("연환산변동성", format(policy_result.annualized_volatility, ".2%"))
+            table.add_row("최대 Drawdown", format(policy_result.max_drawdown, ".2%"))
+            table.add_row("매수 gross turnover", format(policy_result.buy_gross_turnover, ".2%"))
+            table.add_row("매도 gross turnover", format(policy_result.sell_gross_turnover, ".2%"))
+            table.add_row("누적 비용률", format(policy_result.cumulative_cost_rate, ".2%"))
+            table.add_row("최대 목표비중", format(max(target_weights), ".2%"))
+            if outcome.erc_targets:
+                cap_hit_count = sum(
+                    ConstrainedErcBoundFlag.UPPER
+                    in target.diagnostics_after_reconciliation.bound_flags
+                    for target in outcome.erc_targets
+                )
+                table.add_row("target cap 도달 snapshot 수", f"{cap_hit_count}개")
+                table.add_row(
+                    "median free-asset RC dispersion",
+                    "N/A" if not dispersions else format(median(dispersions), ".6g"),
+                )
+                table.add_row(
+                    "max free-asset RC dispersion",
+                    "N/A" if not dispersions else format(max(dispersions), ".6g"),
+                )
+                table.add_row(
+                    "maximum normalized KKT residual",
+                    format(
+                        max(
+                            target.diagnostics_after_reconciliation.normalized_max_kkt_residual
+                            for target in outcome.erc_targets
+                        ),
+                        ".6g",
+                    ),
+                )
+            else:
+                table.add_row("target cap 도달 snapshot 수", "N/A")
+                table.add_row("median free-asset RC dispersion", "N/A")
+                table.add_row("max free-asset RC dispersion", "N/A")
+                table.add_row("maximum normalized KKT residual", "N/A")
+            table.add_row("realized drift cap 초과 일수", f"{drift_cap_days}일")
+            target_cash = Decimal(1) - policy_result.rebalances[0].target.target_equity_weight
+            table.add_row("목표 현금비중", format(target_cash, ".2%"))
+        else:
+            table.add_row("상태", "실패")
+            if outcome.failure is None:
+                failure_code, failure_reason = "N/A", "N/A"
+            else:
+                failure_code, failure_reason = safe_constrained_erc_failure_display(outcome.failure)
+            table.add_row("실패 코드", failure_code)
+            table.add_row("실패 사유", failure_reason)
+            for label in (
+                "실제 평가기간",
+                "리밸런싱 횟수",
+                "총수익률",
+                "연환산수익률",
+                "연환산변동성",
+                "최대 Drawdown",
+                "매수 gross turnover",
+                "매도 gross turnover",
+                "누적 비용률",
+                "최대 목표비중",
+                "target cap 도달 snapshot 수",
+                "realized drift cap 초과 일수",
+                "median free-asset RC dispersion",
+                "max free-asset RC dispersion",
+                "maximum normalized KKT residual",
+                "목표 현금비중",
+            ):
+                table.add_row(label, "N/A")
+        console.print(table)
+    console.print(f"trial 상태: {result.trial.status.value}")
+    console.print(f"trial JSON 저장 경로: {result.saved_path}")
+    console.print("current-universe conditional allocation-only")
+    console.print("KIS READ ONLY · 주문 미전송")
+
+
 def render_risk_model_research_result(
     result: RiskModelResearchApplicationResult,
     console: Console,
@@ -881,6 +1025,51 @@ def run_cli_risk_model_research(
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_constrained_erc_research(
+    runner: Callable[[], ConstrainedErcResearchApplicationResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run one persisted constrained-ERC trial with secret-safe outcomes."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_constrained_erc_research_result(result, output)
+        if result.trial.status is not ConstrainedErcResearchStatus.SUCCEEDED:
+            errors.print("Constrained ERC 연구 오류: 한 개 이상의 정책 계산이 실패했습니다.")
+            return int(ExitCode.PORTFOLIO_ANALYSIS)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except PortfolioAnalysisError:
+        errors.print("Constrained ERC 연구 오류: 분석·수치 품질 검사를 완료하지 못했습니다.")
+        return int(ExitCode.PORTFOLIO_ANALYSIS)
+    except ConstrainedErcTrialStorageError:
+        errors.print("Constrained ERC trial 저장 오류: JSON을 안전하게 저장하지 못했습니다.")
+        return int(ExitCode.PORTFOLIO_STORAGE)
+    except (
+        MarketDataError,
+        KisMarketDataClientError,
+        KisMarketDataParsingError,
+        UniverseError,
+    ) as error:
+        errors.print(f"시세 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except KeyboardInterrupt:
+        errors.print("중단됨: Constrained ERC 연구를 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 Constrained ERC 연구를 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def _exit_after_market_data[MarketDataResult](
     runner: Callable[[], MarketDataResult],
     renderer: Callable[[MarketDataResult, Console], None],
@@ -928,6 +1117,16 @@ def _exit_after_risk_model_research(
     console: Console | None = None,
 ) -> None:
     exit_code = run_cli_risk_model_research(runner, console=console)
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
+def _exit_after_constrained_erc_research(
+    runner: Callable[[], ConstrainedErcResearchApplicationResult],
+    *,
+    console: Console | None = None,
+) -> None:
+    exit_code = run_cli_constrained_erc_research(runner, console=console)
     if exit_code != ExitCode.SUCCESS:
         raise typer.Exit(exit_code)
 
@@ -1173,6 +1372,32 @@ def portfolio_risk_model_research(
     )
 
 
+@portfolio_app.command("constrained-erc-research")
+def portfolio_constrained_erc_research(
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="고유 Constrained ERC trial JSON 출력 디렉터리"),
+    ],
+) -> None:
+    """네 covariance ERC와 세 control을 동일 조건에서 비교합니다."""
+
+    output = _console()
+    render_constrained_erc_research_start(start, end, output_dir, output)
+    _exit_after_constrained_erc_research(
+        lambda: run_production_constrained_erc_research(
+            *_parse_cli_date_range(start, end),
+            output_dir,
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        console=output,
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -1187,12 +1412,15 @@ __all__ = [
     "market_data_daily",
     "market_data_universe",
     "portfolio_allocation_research",
+    "portfolio_constrained_erc_research",
     "portfolio_historical_report",
     "portfolio_returns",
     "portfolio_risk_model_research",
     "render_aligned_return_matrix",
     "render_allocation_research_result",
     "render_allocation_research_start",
+    "render_constrained_erc_research_result",
+    "render_constrained_erc_research_start",
     "render_daily_market_data",
     "render_historical_report_result",
     "render_historical_report_start",
@@ -1205,6 +1433,7 @@ __all__ = [
     "render_universe",
     "render_universe_market_data",
     "run_cli_allocation_research",
+    "run_cli_constrained_erc_research",
     "run_cli_historical_report",
     "run_cli_market_data",
     "run_cli_portfolio_returns",

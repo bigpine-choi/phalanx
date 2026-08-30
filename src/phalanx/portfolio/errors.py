@@ -352,6 +352,74 @@ class RiskModelTrialCorruptionError(RiskModelTrialStorageError):
     """Raised when a stored risk-model trial is malformed or inconsistent."""
 
 
+class ConstrainedErcResearchError(PortfolioAnalysisError):
+    """Base class for expected constrained-ERC research failures."""
+
+
+class InvalidConstrainedErcDomainError(ConstrainedErcResearchError):
+    """Raised when an immutable constrained-ERC value violates its contract."""
+
+
+class ConstrainedErcInfeasibleBoundsError(ConstrainedErcResearchError):
+    """Raised when per-asset bounds cannot contain a fully invested sleeve."""
+
+
+class ConstrainedErcInvalidCovarianceError(ConstrainedErcResearchError):
+    """Raised when covariance dimensions, order, or numerical quality are invalid."""
+
+
+class ConstrainedErcDegenerateVarianceError(ConstrainedErcResearchError):
+    """Raised when a feasible candidate has no positive portfolio variance."""
+
+
+class ConstrainedErcLambdaBracketError(ConstrainedErcResearchError):
+    """Raised when the positive lambda search cannot bracket weight sum one."""
+
+
+class ConstrainedErcCcdConvergenceError(ConstrainedErcResearchError):
+    """Raised when deterministic cyclical coordinate descent does not converge."""
+
+
+class ConstrainedErcBisectionConvergenceError(ConstrainedErcResearchError):
+    """Raised when outer lambda bisection does not reach the fixed sum tolerance."""
+
+
+class ConstrainedErcReconciliationError(ConstrainedErcResearchError):
+    """Raised when float weights cannot be reconciled to exact Decimal weights."""
+
+
+class ConstrainedErcKktValidationError(ConstrainedErcResearchError):
+    """Raised when a candidate fails feasibility, Euler, or KKT validation."""
+
+
+class ConstrainedErcScenarioScheduleError(ConstrainedErcResearchError):
+    """Raised when a covariance scenario does not match the shared signal schedule."""
+
+
+class ConstrainedErcMissingRiskSnapshotError(ConstrainedErcScenarioScheduleError):
+    """Raised when an exact signal-date risk snapshot is absent."""
+
+
+class ConstrainedErcDuplicateRiskSnapshotError(ConstrainedErcScenarioScheduleError):
+    """Raised when more than one risk snapshot claims the same signal date."""
+
+
+class ConstrainedErcTrialStorageError(Exception):
+    """Base class for constrained-ERC trial serialization and storage failures."""
+
+
+class ConstrainedErcTrialAlreadyExistsError(ConstrainedErcTrialStorageError):
+    """Raised rather than overwriting an existing constrained-ERC trial."""
+
+
+class ConstrainedErcTrialLockTimeoutError(ConstrainedErcTrialStorageError):
+    """Raised when a constrained-ERC output lock cannot be acquired."""
+
+
+class ConstrainedErcTrialSerializationError(ConstrainedErcTrialStorageError):
+    """Raised when a constrained-ERC trial cannot be safely serialized."""
+
+
 __all__ = [
     "AllocationResearchError",
     "AllocationSelfFinancingError",
@@ -360,6 +428,22 @@ __all__ = [
     "AllocationTrialLockTimeoutError",
     "AllocationTrialStorageError",
     "AllocationZeroVolatilityError",
+    "ConstrainedErcBisectionConvergenceError",
+    "ConstrainedErcCcdConvergenceError",
+    "ConstrainedErcDegenerateVarianceError",
+    "ConstrainedErcDuplicateRiskSnapshotError",
+    "ConstrainedErcInfeasibleBoundsError",
+    "ConstrainedErcInvalidCovarianceError",
+    "ConstrainedErcKktValidationError",
+    "ConstrainedErcLambdaBracketError",
+    "ConstrainedErcMissingRiskSnapshotError",
+    "ConstrainedErcReconciliationError",
+    "ConstrainedErcResearchError",
+    "ConstrainedErcScenarioScheduleError",
+    "ConstrainedErcTrialAlreadyExistsError",
+    "ConstrainedErcTrialLockTimeoutError",
+    "ConstrainedErcTrialSerializationError",
+    "ConstrainedErcTrialStorageError",
     "DegenerateRiskSeriesError",
     "DuplicateAllocationBarDateError",
     "DuplicateAllocationStockCodeError",
@@ -390,6 +474,7 @@ __all__ = [
     "InvalidAllocationRebalanceError",
     "InvalidAllocationResearchTrialError",
     "InvalidAllocationTargetError",
+    "InvalidConstrainedErcDomainError",
     "InvalidHistoricalUniverseAnalysisError",
     "InvalidMinimumObservationsError",
     "InvalidPerformanceMetricsError",
