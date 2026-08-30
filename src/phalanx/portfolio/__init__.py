@@ -1,1 +1,1 @@
-"""Provider-neutral portfolio analysis without allocation or order decisions."""
+"""Provider-neutral portfolio analysis and allocation research without orders."""

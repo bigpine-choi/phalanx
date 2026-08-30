@@ -17,7 +17,14 @@ from rich.table import Table
 
 from phalanx.application import AccountSnapshotResult, run_production_snapshot
 from phalanx.config import ConfigError
-from phalanx.domain import AccountSnapshot, AccountSummary, AlignedReturnMatrix, DailyBar
+from phalanx.domain import (
+    AccountSnapshot,
+    AccountSummary,
+    AlignedReturnMatrix,
+    AllocationPolicyOutcomeStatus,
+    AllocationTrialStatus,
+    DailyBar,
+)
 from phalanx.kis.errors import (
     KisAuthError,
     KisBalanceAuthenticationError,
@@ -36,11 +43,17 @@ from phalanx.market_data.errors import InvalidMarketDataRangeError, MarketDataEr
 from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
 from phalanx.portfolio.application import (
+    AllocationResearchApplicationResult,
     HistoricalReportResult,
     run_production_aligned_returns,
+    run_production_allocation_research,
     run_production_historical_report,
 )
-from phalanx.portfolio.errors import HistoricalReportError, PortfolioAnalysisError
+from phalanx.portfolio.errors import (
+    AllocationTrialStorageError,
+    HistoricalReportError,
+    PortfolioAnalysisError,
+)
 from phalanx.snapshots import SnapshotStorageError
 from phalanx.universe.errors import UniverseError
 from phalanx.universe.repository import JsonUniverseRepository
@@ -62,6 +75,7 @@ class ExitCode(IntEnum):
     MARKET_DATA = 60
     PORTFOLIO_ANALYSIS = 65
     HISTORICAL_REPORT = 66
+    PORTFOLIO_STORAGE = 66
     UNEXPECTED = 70
     INTERRUPTED = 130
 
@@ -400,6 +414,72 @@ def render_historical_report_result(
     console.print("KIS READ ONLY · 주문 미전송")
 
 
+def render_allocation_research_start(
+    start: str,
+    end: str,
+    output_dir: Path,
+    console: Console,
+) -> None:
+    """Announce allocation research before credentials or network work begins."""
+
+    console.print("자산배분 연구 시작 · KIS READ ONLY", style="bold green")
+    console.print("조회 대상: 활성 유니버스")
+    console.print(f"시작일: {start}")
+    console.print(f"종료일: {end}")
+    console.print(f"출력 디렉터리: {output_dir}")
+    console.print("현재 유니버스 조건부 allocation-only 연구")
+
+
+def render_allocation_research_result(
+    result: AllocationResearchApplicationResult,
+    console: Console,
+) -> None:
+    """Render comparable policy summaries and the persisted trial path."""
+
+    console.print("자산배분 정책 비교 · allocation-only · READ ONLY", style="bold")
+    for outcome in result.trial.policy_outcomes:
+        table = Table(title=outcome.policy_id)
+        table.add_column("항목", style="bold")
+        table.add_column("값", justify="right")
+        if outcome.status is AllocationPolicyOutcomeStatus.SUCCEEDED and outcome.result is not None:
+            policy_result = outcome.result
+            table.add_row("상태", "성공")
+            table.add_row(
+                "실제 평가기간",
+                f"{policy_result.dates[0].isoformat()}~{policy_result.dates[-1].isoformat()}",
+            )
+            table.add_row("리밸런싱", f"{len(policy_result.rebalances)}회")
+            table.add_row("총수익률", format(policy_result.total_return, ".2%"))
+            table.add_row("연환산수익률", format(policy_result.annualized_return, ".2%"))
+            table.add_row("연환산변동성", format(policy_result.annualized_volatility, ".2%"))
+            table.add_row("최대 Drawdown", format(policy_result.max_drawdown, ".2%"))
+            table.add_row(
+                "매수 gross turnover",
+                format(policy_result.buy_gross_turnover, ".2%"),
+            )
+            table.add_row(
+                "매도 gross turnover",
+                format(policy_result.sell_gross_turnover, ".2%"),
+            )
+            table.add_row("누적 비용률", format(policy_result.cumulative_cost_rate, ".2%"))
+        else:
+            table.add_row("상태", "실패")
+            table.add_row("실제 평가기간", "-")
+            table.add_row("리밸런싱", "-")
+            table.add_row("총수익률", "-")
+            table.add_row("연환산수익률", "-")
+            table.add_row("연환산변동성", "-")
+            table.add_row("최대 Drawdown", "-")
+            table.add_row("매수 gross turnover", "-")
+            table.add_row("매도 gross turnover", "-")
+            table.add_row("누적 비용률", "-")
+        console.print(table)
+    console.print(f"trial 상태: {result.trial.status.value}")
+    console.print(f"trial JSON 저장 경로: {result.saved_path}")
+    console.print("현재 유니버스 조건부 allocation-only 연구")
+    console.print("KIS READ ONLY · 주문 미전송")
+
+
 def _universe_error(error: UniverseError) -> None:
     _console(stderr=True).print(f"유니버스 오류: {error}")
     raise typer.Exit(ExitCode.UNIVERSE)
@@ -558,6 +638,51 @@ def run_cli_historical_report(
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_allocation_research(
+    runner: Callable[[], AllocationResearchApplicationResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run one persisted allocation trial with stable, secret-safe outcomes."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_allocation_research_result(result, output)
+        if result.trial.status is not AllocationTrialStatus.SUCCEEDED:
+            errors.print("자산배분 연구 오류: 한 개 이상의 정책 계산이 실패했습니다.")
+            return int(ExitCode.PORTFOLIO_ANALYSIS)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except PortfolioAnalysisError as error:
+        errors.print(f"자산배분 연구 오류: {error}")
+        return int(ExitCode.PORTFOLIO_ANALYSIS)
+    except AllocationTrialStorageError:
+        errors.print("연구 trial 저장 오류: JSON을 안전하게 저장하지 못했습니다.")
+        return int(ExitCode.PORTFOLIO_STORAGE)
+    except (
+        MarketDataError,
+        KisMarketDataClientError,
+        KisMarketDataParsingError,
+        UniverseError,
+    ) as error:
+        errors.print(f"시세 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 자산배분 연구를 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 자산배분 연구를 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def _exit_after_market_data[MarketDataResult](
     runner: Callable[[], MarketDataResult],
     renderer: Callable[[MarketDataResult, Console], None],
@@ -585,6 +710,16 @@ def _exit_after_historical_report(
     console: Console | None = None,
 ) -> None:
     exit_code = run_cli_historical_report(runner, console=console)
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
+def _exit_after_allocation_research(
+    runner: Callable[[], AllocationResearchApplicationResult],
+    *,
+    console: Console | None = None,
+) -> None:
+    exit_code = run_cli_allocation_research(runner, console=console)
     if exit_code != ExitCode.SUCCESS:
         raise typer.Exit(exit_code)
 
@@ -778,6 +913,32 @@ def portfolio_historical_report(
     )
 
 
+@portfolio_app.command("allocation-research")
+def portfolio_allocation_research(
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="고유 allocation trial JSON 출력 디렉터리"),
+    ],
+) -> None:
+    """현재 활성 유니버스의 조건부 allocation-only 연구를 실행합니다."""
+
+    output = _console()
+    render_allocation_research_start(start, end, output_dir, output)
+    _exit_after_allocation_research(
+        lambda: run_production_allocation_research(
+            *_parse_cli_date_range(start, end),
+            output_dir,
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        console=output,
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -791,9 +952,12 @@ __all__ = [
     "main",
     "market_data_daily",
     "market_data_universe",
+    "portfolio_allocation_research",
     "portfolio_historical_report",
     "portfolio_returns",
     "render_aligned_return_matrix",
+    "render_allocation_research_result",
+    "render_allocation_research_start",
     "render_daily_market_data",
     "render_historical_report_result",
     "render_historical_report_start",
@@ -803,6 +967,7 @@ __all__ = [
     "render_snapshot_summary",
     "render_universe",
     "render_universe_market_data",
+    "run_cli_allocation_research",
     "run_cli_historical_report",
     "run_cli_market_data",
     "run_cli_portfolio_returns",

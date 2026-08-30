@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
 
-from phalanx.domain import AlignedReturnMatrix, HistoricalUniverseAnalysis, KoreanStock
+from phalanx.domain import (
+    AlignedReturnMatrix,
+    AllocationBacktestConfig,
+    AllocationResearchTrial,
+    HistoricalUniverseAnalysis,
+    KoreanStock,
+)
 from phalanx.kis.market_data_client import KisRateLimitCallback, KisRequestPacer
 from phalanx.market_data.application import run_production_universe_market_data
 from phalanx.market_data.service import StockDailyBars
+from phalanx.portfolio.allocation_policies import AllocationPolicy
+from phalanx.portfolio.allocation_research import conduct_allocation_research
+from phalanx.portfolio.allocation_trial_registry import JsonAllocationTrialRegistry
 from phalanx.portfolio.errors import HistoricalReportStockOrderError
 from phalanx.portfolio.performance import analyze_historical_universe
 from phalanx.portfolio.report_storage import save_historical_report
@@ -25,6 +35,14 @@ class HistoricalReportResult:
 
     analysis: HistoricalUniverseAnalysis
     stocks: tuple[KoreanStock, ...]
+    saved_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationResearchApplicationResult:
+    """One completed or failed calculation trial after safe persistence."""
+
+    trial: AllocationResearchTrial
     saved_path: Path
 
 
@@ -94,6 +112,47 @@ def run_production_historical_report(
     )
 
 
+def run_production_allocation_research(
+    start: date,
+    end: date,
+    output_dir: Path,
+    *,
+    config: AllocationBacktestConfig | None = None,
+    policies: tuple[AllocationPolicy, ...] | None = None,
+    credentials_path: Path | None = None,
+    token_cache_path: Path | None = None,
+    universe_path: Path | None = None,
+    transport: httpx.BaseTransport | None = None,
+    rate_limit_callback: KisRateLimitCallback | None = None,
+    request_pacer: KisRequestPacer | None = None,
+    trial_id_factory: Callable[[], str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> AllocationResearchApplicationResult:
+    """Fetch the active universe once, compare policies, and persist one trial."""
+
+    histories = run_production_universe_market_data(
+        start,
+        end,
+        credentials_path=credentials_path,
+        token_cache_path=token_cache_path,
+        universe_path=universe_path,
+        transport=transport,
+        rate_limit_callback=rate_limit_callback,
+        request_pacer=request_pacer,
+    )
+    trial = conduct_allocation_research(
+        histories,
+        start,
+        end,
+        config=config,
+        policies=policies,
+        trial_id_factory=trial_id_factory,
+        clock=clock,
+    )
+    saved_path = JsonAllocationTrialRegistry(output_dir).save(trial)
+    return AllocationResearchApplicationResult(trial=trial, saved_path=saved_path)
+
+
 def _stocks_in_matrix_order(
     histories: tuple[StockDailyBars, ...],
     matrix: AlignedReturnMatrix,
@@ -107,7 +166,9 @@ def _stocks_in_matrix_order(
 
 
 __all__ = [
+    "AllocationResearchApplicationResult",
     "HistoricalReportResult",
     "run_production_aligned_returns",
+    "run_production_allocation_research",
     "run_production_historical_report",
 ]
