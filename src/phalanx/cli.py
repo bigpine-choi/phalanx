@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
 from enum import IntEnum
+from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
@@ -34,8 +35,12 @@ from phalanx.market_data.application import (
 from phalanx.market_data.errors import InvalidMarketDataRangeError, MarketDataError
 from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
-from phalanx.portfolio.application import run_production_aligned_returns
-from phalanx.portfolio.errors import PortfolioAnalysisError
+from phalanx.portfolio.application import (
+    HistoricalReportResult,
+    run_production_aligned_returns,
+    run_production_historical_report,
+)
+from phalanx.portfolio.errors import HistoricalReportError, PortfolioAnalysisError
 from phalanx.snapshots import SnapshotStorageError
 from phalanx.universe.errors import UniverseError
 from phalanx.universe.repository import JsonUniverseRepository
@@ -56,6 +61,7 @@ class ExitCode(IntEnum):
     UNIVERSE = 50
     MARKET_DATA = 60
     PORTFOLIO_ANALYSIS = 65
+    HISTORICAL_REPORT = 66
     UNEXPECTED = 70
     INTERRUPTED = 130
 
@@ -351,6 +357,49 @@ def render_aligned_return_matrix(
     console.print(overview)
 
 
+def render_historical_report_start(
+    start: str,
+    end: str,
+    output_path: Path,
+    console: Console,
+) -> None:
+    """Announce the report request before credentials or network work begins."""
+
+    console.print("과거 유니버스 성과 리포트 생성 시작 · KIS READ ONLY", style="bold green")
+    console.print("조회 대상: 활성 유니버스")
+    console.print(f"시작일: {start}")
+    console.print(f"종료일: {end}")
+    console.print(f"저장 대상: {output_path}")
+
+
+def render_historical_report_result(
+    result: HistoricalReportResult,
+    console: Console,
+) -> None:
+    """Render only completed analysis metadata and the persisted report path."""
+
+    analysis = result.analysis
+    metrics = analysis.baseline_metrics
+    overview = Table(title="과거 유니버스 성과 리포트 · READ ONLY")
+    overview.add_column("항목", style="bold")
+    overview.add_column("값")
+    overview.add_row("분석 시작일", analysis.dates[0].isoformat())
+    overview.add_row("분석 종료일", analysis.dates[-1].isoformat())
+    overview.add_row("종목 수", f"{len(analysis.stock_codes)}개")
+    overview.add_row("수익률 관측치 수", f"{len(analysis.dates)}개")
+    overview.add_row("기준선 총수익률", format(metrics.total_return, ".2%"))
+    overview.add_row("기준선 연환산수익률", format(metrics.annualized_return, ".2%"))
+    overview.add_row("기준선 연환산변동성", format(metrics.annualized_volatility, ".2%"))
+    overview.add_row(
+        "기준선 Sharpe",
+        "N/A" if metrics.sharpe_ratio is None else format(metrics.sharpe_ratio, ".4f"),
+    )
+    overview.add_row("저장 경로", str(result.saved_path))
+    console.print(overview)
+    console.print("동일가중 기준선은 실제 계좌 성과나 Phalanx 전략 성과가 아닙니다.")
+    console.print("KIS READ ONLY · 주문 미전송")
+
+
 def _universe_error(error: UniverseError) -> None:
     _console(stderr=True).print(f"유니버스 오류: {error}")
     raise typer.Exit(ExitCode.UNIVERSE)
@@ -467,6 +516,48 @@ def run_cli_portfolio_returns(
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_historical_report(
+    runner: Callable[[], HistoricalReportResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run one historical HTML report with stable, secret-safe failures."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_historical_report_result(result, output)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except PortfolioAnalysisError as error:
+        errors.print(f"성과 분석 오류: {error}")
+        return int(ExitCode.PORTFOLIO_ANALYSIS)
+    except HistoricalReportError as error:
+        errors.print(f"리포트 생성·저장 오류: {error}")
+        return int(ExitCode.HISTORICAL_REPORT)
+    except (
+        MarketDataError,
+        KisMarketDataClientError,
+        KisMarketDataParsingError,
+        UniverseError,
+    ) as error:
+        errors.print(f"시세 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 과거 유니버스 리포트 작업을 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 과거 유니버스 리포트를 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def _exit_after_market_data[MarketDataResult](
     runner: Callable[[], MarketDataResult],
     renderer: Callable[[MarketDataResult, Console], None],
@@ -484,6 +575,16 @@ def _exit_after_portfolio_returns(
     console: Console | None = None,
 ) -> None:
     exit_code = run_cli_portfolio_returns(runner, console=console)
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
+def _exit_after_historical_report(
+    runner: Callable[[], HistoricalReportResult],
+    *,
+    console: Console | None = None,
+) -> None:
+    exit_code = run_cli_historical_report(runner, console=console)
     if exit_code != ExitCode.SUCCESS:
         raise typer.Exit(exit_code)
 
@@ -651,6 +752,32 @@ def portfolio_returns(
     )
 
 
+@portfolio_app.command("historical-report")
+def portfolio_historical_report(
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+    output_path: Annotated[
+        Path,
+        typer.Option("--output", help="새로 생성할 self-contained HTML 파일 경로"),
+    ],
+) -> None:
+    """활성 유니버스의 동일가중 매수후보유 HTML 리포트를 생성합니다."""
+
+    output = _console()
+    render_historical_report_start(start, end, output_path, output)
+    _exit_after_historical_report(
+        lambda: run_production_historical_report(
+            *_parse_cli_date_range(start, end),
+            output_path,
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        console=output,
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -664,15 +791,19 @@ __all__ = [
     "main",
     "market_data_daily",
     "market_data_universe",
+    "portfolio_historical_report",
     "portfolio_returns",
     "render_aligned_return_matrix",
     "render_daily_market_data",
+    "render_historical_report_result",
+    "render_historical_report_start",
     "render_market_data_start",
     "render_portfolio_returns_start",
     "render_rate_limit_notification",
     "render_snapshot_summary",
     "render_universe",
     "render_universe_market_data",
+    "run_cli_historical_report",
     "run_cli_market_data",
     "run_cli_portfolio_returns",
     "run_cli_snapshot",
