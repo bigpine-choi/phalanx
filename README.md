@@ -1,6 +1,6 @@
 # Phalanx
 
-Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투자증권 실전계좌의 예수금 총액과 국내주식 잔고를 읽어 불변 JSON 스냅샷으로 저장하고, 사람이 직접 관리하는 로컬 투자 후보 유니버스, KIS 국내주식 일별 시세 조회, 공통 거래일 수익률 행렬, 과거 유니버스 HTML 리포트, 재현 가능한 자산배분 연구 harness와 동적 위험모형 연구 계층을 제공합니다.
+Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투자증권 실전계좌의 예수금 총액과 국내주식 잔고를 읽어 불변 JSON 스냅샷으로 저장하고, 사람이 직접 관리하는 로컬 투자 후보 유니버스, KIS 국내주식 일별 시세 조회, 공통 거래일 수익률 행렬, 과거 유니버스 HTML 리포트, 재현 가능한 자산배분 연구 harness, 동적 위험모형과 Constrained ERC 연구 계층을 제공합니다.
 
 ## 현재 마일스톤의 안전 경계
 
@@ -11,7 +11,7 @@ Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투
 - `orderable_cash`는 이번 마일스톤에서 제공되지 않아 `None`/`null`로 유지하고 터미널에는 `미제공`으로 표시합니다. 향후 매매계획 단계에서 매수가능조회 API의 `nrcvb_buy_amt`를 별도로 확인합니다.
 - API 키, 앱 시크릿, 계좌번호와 접근토큰은 Git에 포함하지 않습니다. `runtime/` 제외 규칙은 방어 목적으로 유지합니다.
 
-현재 브랜치는 외부 자격증명, OAuth 토큰 캐시, 국내주식 잔고 파싱·연속조회, 불변 스냅샷 저장, 로컬 투자 후보 관리, 수정주가 기준 일별 OHLCV 조회, 공통 거래일 단순수익률 계산, self-contained 과거 성과 리포트, 조건부 자산배분 연구 harness와 네 개의 독립 공분산 시나리오 연구까지 구성합니다. 실제 자격증명과 실제 KIS API는 자동 테스트에서 사용하지 않습니다.
+현재 브랜치는 외부 자격증명, OAuth 토큰 캐시, 국내주식 잔고 파싱·연속조회, 불변 스냅샷 저장, 로컬 투자 후보 관리, 수정주가 기준 일별 OHLCV 조회, 공통 거래일 단순수익률 계산, self-contained 과거 성과 리포트, 조건부 자산배분 연구 harness, 네 개의 독립 공분산 시나리오와 각 시나리오의 Constrained ERC 연구까지 구성합니다. 실제 자격증명과 실제 KIS API는 자동 테스트에서 사용하지 않습니다.
 
 ## 개발 환경
 
@@ -223,7 +223,7 @@ uv run phalanx portfolio allocation-research \
 - 이 결과는 **현재 선택된 9종목을 과거에도 이미 알고 있었다고 가정한 현재 유니버스 조건부 allocation-only 연구**입니다.
 - 종목선정 능력을 측정하지 않으며, 전체 Phalanx 전략의 out-of-sample(OOS) 검증도 아닙니다.
 - 현재 살아남아 선택된 종목을 과거에 소급 적용하므로 survivorship bias와 hindsight-selection bias가 존재합니다.
-- KOSPI benchmark, 정수주, IEWMA, Ledoit-Wolf, ERC, GMV, HRP, HERC, 알파, 모멘텀, Black–Litterman(BL), Max-Sharpe는 이번 연구 범위 밖입니다.
+- KOSPI benchmark, 정수주, IEWMA, Ledoit-Wolf, ERC, GMV, HRP, HERC, 알파, 모멘텀, Black–Litterman(BL), Max-Sharpe는 이 기본 `allocation-research` 명령의 범위 밖입니다. Constrained ERC는 아래의 별도 연구 명령에서만 수행합니다.
 - 기대수익률 모델, optimizer, 종목 추천, 실계좌 목표수량과 주문 초안도 만들지 않습니다.
 - KIS 연결은 기존 실전계좌 **READ ONLY** 일별 시세 조회만 사용하며 매수·매도·정정·취소 주문을 전송하지 않습니다.
 
@@ -265,11 +265,59 @@ finite-history 가중치를 합계 1로 정규화합니다. 변동성 seed는 `m
 
 - 현재 활성 유니버스를 과거에도 알고 있었다고 가정하므로 survivorship bias와 hindsight-selection bias가 있습니다.
 - 어떤 시나리오도 최적 또는 추천 covariance로 지정하지 않으며, 데이터에 맞춰 반감기나 하방 비율을 조정하는 CLI 옵션도 제공하지 않습니다.
-- expected return, alpha, Black–Litterman, CM-IEWMA, covariance blend, Loewner envelope, ERC·GMV·HERC·Max-Sharpe와 optimizer는 이 단계의 범위 밖입니다.
+- `risk-model-research` 명령 자체는 expected return, alpha, Black–Litterman, CM-IEWMA, covariance blend, Loewner envelope, 자산 비중과 optimizer를 만들지 않습니다. 별도 Constrained ERC 연구가 이 명령과 같은 네 covariance 계약을 이름으로 소비합니다.
 - 결과에는 자산 비중, 정수주·분할주 수량, 주문 초안이 없습니다.
 - KIS 연결은 기존 실전계좌 **READ ONLY** 일별 시세 조회뿐이며 주문 endpoint나 주문 TR ID를 추가하거나 주문을 전송하지 않습니다.
 
 수치 정의는 [IEWMA 논문](https://arxiv.org/abs/2305.19484), [저자 공식 재현 코드](https://github.com/cvxgrp/cov_pred_finance)와 [scikit-learn LedoitWolf API](https://scikit-learn.org/stable/modules/generated/sklearn.covariance.LedoitWolf.html)를 참고합니다. Phalanx v1의 finite-history 정규화, 인과적 update 순서, 고정 반감기와 PSD 품질 경계는 위 계약대로 trial에 함께 기록합니다.
+
+## Constrained ERC 연구
+
+Constrained ERC 연구는 네 동적 covariance scenario를 서로 섞거나 평균하지 않고 각각 독립적인 equal-budget 위험배분 정책으로 변환합니다. 이는 각 estimator의 사전 고정 가정과 성과 귀속을 보존하고, 결과를 본 뒤 혼합하거나 선택해 생기는 편향을 피하기 위한 설계입니다. 네 ERC와 `WeeklyEqualWeight`, `WeeklyInverseVolatility`, `EqualWeightBuyAndHold` control을 같은 공통 가격 패널, 504/756/5 일정, 신호일, 다음 공통 거래일 수정주가 시가, 비대칭 비용, 초기 NAV와 평가기간으로 비교합니다. winner나 추천 정책을 자동 선택하지 않습니다.
+
+```bash
+uv run phalanx portfolio constrained-erc-research \
+  --start 2023-01-01 \
+  --end 2026-08-31 \
+  --output-dir research/constrained-erc-trials
+```
+
+각 covariance `Σ`에 대해 risk budget은 `b_i = 1/N`이고, 다음 log-barrier 문제를 deterministic cyclical coordinate descent로 풉니다.
+
+```text
+x*(lambda) = argmin sqrt(x' Σ x) - lambda * sum_i(b_i * log(x_i))
+subject to 0 < x_i <= 0.20
+```
+
+그 뒤 positive `lambda`의 outer bisection으로 `sum_i(x_i)=1`을 직접 만족시킵니다. inner 해를 normalize하거나 cap 적용 뒤 다시 normalize하지 않으며 risk-contribution least-squares를 사용하지 않습니다. 종목별 20% 상한은 사전에 고정한 concentration 연구 제약이지 보편적인 최적값이라는 주장이 아닙니다. 상한 합계가 1보다 작으면 제약을 완화하거나 현금을 추가하지 않고 해당 정책을 실패 처리합니다. 종목이 정확히 5개이면 모두 20%에 걸리는 퇴화해도 유효한 해로 기록합니다.
+
+최종 위험기여도는 다음과 같이 검증합니다.
+
+```text
+sigma = sqrt(x' Σ x)
+RC_i = x_i * (Σx)_i / sigma
+q_i = RC_i - lambda * b_i
+```
+
+free 종목은 `q_i≈0`, lower-bound 종목은 `q_i>=0`, upper-bound 종목은 `q_i<=0`이어야 합니다. 따라서 20% 상한에 걸린 종목의 위험기여도가 `lambda*b_i`보다 낮은 것은 정상적인 KKT 결과입니다. 모든 종목의 상대 위험기여도를 억지로 `1/N`로 맞추지 않습니다. covariance는 기존 PSD 품질 정책을 그대로 사용하며 ridge나 양의 eigenvalue floor를 추가하지 않습니다.
+
+solver의 float64 수치해는 `0.000000000001` quantum의 `Decimal`로 내림한 뒤 fractional remainder가 큰 순서와 종목 등록 순서로 남은 quantum을 배분합니다. 최종 합계는 정확히 `1`, 각 목표비중은 양수이면서 20% 이하이고, reconciliation 뒤 다시 feasibility·Euler·KKT 검사를 통과해야 합니다. backtest는 이 reconciled Decimal 목표비중만 사용합니다.
+
+20%는 **리밸런싱 target cap**입니다. 다음 리밸런싱 전 가격 변화로 실현비중이 20%를 넘는 것은 solver 위반이 아니며 `realized drift cap 초과 일수`로 별도 기록합니다. 네 ERC와 세 control은 이 연구에서 위험자산에 100% 투자하고 전략적 현금 목표는 `0`입니다. 현금을 0변동성 ERC 자산으로 넣지 않으며 leverage, short, expected return, alpha, risk-free rate, volatility target, turnover penalty를 사용하지 않습니다.
+
+체결은 fractional-share 자기금융 연구이며 신호일 종가 다음 공통 거래일 수정주가 시가를 사용합니다. 매수비용률 `0.001`, 매도비용률 `0.0025`는 비교를 위한 연구 가정이지 실제 체결비용이 아닙니다. 각 실행은 `phalanx.constrained_erc_research_trial.v1` 전용 private JSON에 공통 입력, 일정, 네 covariance sequence, raw/reconciled 목표비중, KKT 진단과 일별 NAV·비중·비용 경로를 저장합니다. 기존 allocation/risk-model trial schema와 파일은 변경하지 않습니다.
+
+해석에는 다음 제한이 있습니다.
+
+- 이 결과는 **current-universe conditional allocation-only 연구**입니다. 현재 활성 유니버스를 과거에도 알았다고 가정하므로 survivorship bias와 hindsight-selection bias가 있습니다.
+- covariance scenario는 각각 독립적으로 소비하며 혼합·평균·자동 선택하지 않습니다.
+- 기대수익률이나 alpha 입력이 없고, 결과는 종목선정 alpha 또는 전체 Phalanx 전략의 OOS 성과를 증명하지 않습니다.
+- fractional shares와 고정 비용 가정을 사용하며 정수주, 실계좌 목표수량 또는 주문 초안이 아닙니다.
+- KOSPI benchmark가 없으므로 시장 대비 성과를 주장하지 않습니다.
+- 향후 volatility-target scalar와 cash residual overlay는 ERC risky sleeve 밖의 별도 계층 범위입니다.
+- KIS 연결은 실전계좌 **READ ONLY** 일별 시세 조회뿐이며 주문 endpoint, 주문 TR ID 또는 주문 전송을 추가하지 않습니다.
+
+수학적 formulation과 box-bound KKT 회귀값은 [Richard와 Roncalli의 원 논문](https://arxiv.org/abs/1902.05710)을 기준으로 검증합니다.
 
 ## CLI 계약
 

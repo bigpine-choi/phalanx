@@ -14,6 +14,7 @@ from decimal import (
 
 import pytest
 
+import phalanx.portfolio.allocation_backtest as allocation_backtest_module
 from phalanx.domain import (
     AlignedPricePanel,
     AllocationBacktestConfig,
@@ -171,6 +172,48 @@ def test_signal_close_is_not_used_for_execution_when_next_open_has_a_large_gap()
     assert result.rebalances[0].target.signal_date == panel.dates[2]
     assert result.rebalances[0].execution_date == panel.dates[3]
     assert result.net_asset_values == (Decimal("0.1"),)
+
+
+def test_fully_invested_realized_weights_reconcile_decimal_division_residual() -> None:
+    stock_values = (
+        Decimal("0.92280519650127515734905819500520392970358217226354"),
+        Decimal("0.07985796986761589854269450522044876830051709157211"),
+    )
+    with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
+        nav = sum(stock_values, Decimal(0))
+        independently_divided = tuple(value / nav for value in stock_values)
+        assert Decimal(1) - sum(independently_divided, Decimal(0)) == Decimal("-1E-49")
+
+        weights, cash_weight = allocation_backtest_module._realized_weights(
+            stock_values,
+            Decimal(0),
+            nav,
+        )
+
+        assert cash_weight == Decimal(0)
+        assert all(weight >= 0 for weight in weights)
+        assert sum(weights, Decimal(0)) + cash_weight == Decimal(1)
+
+
+def test_fully_invested_residual_anchor_skips_a_zero_weight_last_asset() -> None:
+    stock_values = (
+        Decimal("0.92280519650127515734905819500520392970358217226354"),
+        Decimal("0.07985796986761589854269450522044876830051709157211"),
+        Decimal(0),
+    )
+    with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
+        nav = sum(stock_values, Decimal(0))
+
+        weights, cash_weight = allocation_backtest_module._realized_weights(
+            stock_values,
+            Decimal(0),
+            nav,
+        )
+
+        assert weights[-1] == Decimal(0)
+        assert cash_weight == Decimal(0)
+        assert all(weight >= 0 for weight in weights)
+        assert sum(weights, Decimal(0)) + cash_weight == Decimal(1)
 
 
 def test_buy_and_hold_trades_once_and_weights_drift_while_weekly_policy_keeps_schedule() -> None:
