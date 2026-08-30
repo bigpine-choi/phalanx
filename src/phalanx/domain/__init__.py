@@ -10,12 +10,14 @@ from phalanx.domain.account import (
     SnapshotEvidence,
 )
 from phalanx.domain.market_data import DailyBar
+from phalanx.domain.portfolio import AlignedReturnMatrix
 from phalanx.domain.universe import KoreanStock, StockMarket
 
 __all__ = [
     "AccountPosition",
     "AccountSnapshot",
     "AccountSummary",
+    "AlignedReturnMatrix",
     "ApiPageEvidence",
     "DailyBar",
     "KoreanStock",
