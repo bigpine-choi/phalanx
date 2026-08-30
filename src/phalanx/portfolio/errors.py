@@ -89,15 +89,71 @@ class UnsortedDailyBarsError(PortfolioAnalysisError):
         )
 
 
+class InvalidPerformanceMetricsError(PortfolioAnalysisError):
+    """Raised when one immutable performance summary violates its invariants."""
+
+
+class InvalidHistoricalUniverseAnalysisError(PortfolioAnalysisError):
+    """Raised when historical-analysis dimensions or values are inconsistent."""
+
+
+class InsufficientPerformanceObservationsError(PortfolioAnalysisError):
+    """Raised when fewer than two aligned daily returns are available."""
+
+    def __init__(self, actual: int) -> None:
+        self.actual = actual
+        super().__init__(
+            f"과거 성과 분석에는 최소 2개의 수익률 관측치가 필요합니다: 현재 {actual}개."
+        )
+
+
+class InvalidPerformanceReturnError(PortfolioAnalysisError):
+    """Raised when a return cannot produce a positive growth factor."""
+
+
+class HistoricalReportStockOrderError(PortfolioAnalysisError):
+    """Raised when stock names cannot be aligned exactly to matrix columns."""
+
+
+class HistoricalReportError(Exception):
+    """Base class for expected HTML rendering or storage failures."""
+
+
+class HistoricalReportRenderError(HistoricalReportError):
+    """Raised when a self-contained report cannot be rendered safely."""
+
+
+class HistoricalReportStorageError(HistoricalReportError):
+    """Raised when a report cannot be stored atomically and privately."""
+
+
+class HistoricalReportAlreadyExistsError(HistoricalReportStorageError):
+    """Raised when storing a report would overwrite an existing path."""
+
+
+class HistoricalReportLockTimeoutError(HistoricalReportStorageError):
+    """Raised when an output-path lock cannot be acquired in time."""
+
+
 __all__ = [
     "DuplicateDailyBarDateError",
     "DuplicateReturnStockCodeError",
     "EmptyReturnUniverseError",
     "EmptyStockHistoryError",
+    "HistoricalReportAlreadyExistsError",
+    "HistoricalReportError",
+    "HistoricalReportLockTimeoutError",
+    "HistoricalReportRenderError",
+    "HistoricalReportStockOrderError",
+    "HistoricalReportStorageError",
     "InsufficientCommonObservationsError",
+    "InsufficientPerformanceObservationsError",
     "InsufficientStockObservationsError",
     "InvalidAlignedReturnMatrixError",
+    "InvalidHistoricalUniverseAnalysisError",
     "InvalidMinimumObservationsError",
+    "InvalidPerformanceMetricsError",
+    "InvalidPerformanceReturnError",
     "PortfolioAnalysisError",
     "ReturnStockCodeMismatchError",
     "UnsortedDailyBarsError",
