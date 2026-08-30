@@ -45,8 +45,8 @@ def test_korean_stock_is_immutable_and_normalizes_human_text() -> None:
 
 def test_blank_note_is_normalized_to_none() -> None:
     stock = KoreanStock(
-        stock_code="035720",
-        stock_name="카카오",
+        stock_code="035900",
+        stock_name="JYP Ent.",
         market=StockMarket.KOSDAQ,
         note="   ",
     )
@@ -115,11 +115,11 @@ def test_service_runs_complete_add_toggle_remove_lifecycle(tmp_path: Path) -> No
 def test_service_preserves_human_registration_order(tmp_path: Path) -> None:
     service = _service(tmp_path)
 
-    service.add_stock("035720", "카카오", StockMarket.KOSDAQ)
+    service.add_stock("035900", "JYP Ent.", StockMarket.KOSDAQ)
     service.add_stock("005930", "삼성전자", StockMarket.KOSPI)
 
     assert tuple(stock.stock_code for stock in service.list_stocks()) == (
-        "035720",
+        "035900",
         "005930",
     )
 
@@ -129,7 +129,7 @@ def test_service_rejects_duplicate_stock_code(tmp_path: Path) -> None:
     service.add_stock("005930", "삼성전자", "KOSPI")
 
     with pytest.raises(DuplicateStockError, match=r"이미.*등록"):
-        service.add_stock("005930", "다른 이름", "KOSDAQ")
+        service.add_stock("005930", "삼성전자", "KOSPI")
 
 
 @pytest.mark.parametrize("operation", ("enable_stock", "disable_stock", "remove_stock"))

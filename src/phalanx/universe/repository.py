@@ -24,6 +24,7 @@ from phalanx.universe.errors import (
     UniverseStorageError,
     UniverseValidationError,
     UnsafeUniversePathError,
+    UnsupportedPlatformError,
 )
 
 PRIVATE_DIRECTORY_MODE = 0o700
@@ -47,19 +48,21 @@ class UniverseRepository(Protocol):
     def remove(self, stock_code: str) -> KoreanStock: ...
 
 
+def _require_supported_platform(platform_name: str) -> None:
+    if not platform_name.startswith("linux"):
+        raise UnsupportedPlatformError("로컬 유니버스 저장소는 현재 Linux와 WSL에서만 지원됩니다.")
+
+
 def default_universe_path(
     *,
     home: Path | None = None,
     platform_name: str | None = None,
 ) -> Path:
-    """Resolve an OS-specific per-user data path without using the working directory."""
+    """Resolve the Linux/WSL per-user data path without using the working directory."""
 
-    user_home = Path.home() if home is None else Path(home)
     selected_platform = sys.platform if platform_name is None else platform_name
-    if selected_platform == "darwin":
-        return user_home / "Library" / "Application Support" / "Phalanx" / "universe.json"
-    if selected_platform == "win32":
-        return user_home / "AppData" / "Local" / "Phalanx" / "universe.json"
+    _require_supported_platform(selected_platform)
+    user_home = Path.home() if home is None else Path(home)
     return user_home / ".local" / "share" / "phalanx" / "universe.json"
 
 
@@ -67,7 +70,12 @@ class JsonUniverseRepository:
     """Store one human-curated universe in a versioned, atomically replaced JSON file."""
 
     def __init__(self, path: Path | None = None) -> None:
-        resolved_path = default_universe_path() if path is None else Path(path).absolute()
+        _require_supported_platform(sys.platform)
+        resolved_path = (
+            default_universe_path(platform_name=sys.platform)
+            if path is None
+            else Path(path).absolute()
+        )
         self.path = resolved_path
         self.directory = resolved_path.parent
         self.lock_path = resolved_path.with_name(f"{resolved_path.name}.lock")

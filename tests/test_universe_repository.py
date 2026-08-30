@@ -15,6 +15,7 @@ from phalanx.universe.errors import (
     DuplicateStockError,
     UniverseStorageError,
     UnsafeUniversePathError,
+    UnsupportedPlatformError,
 )
 from phalanx.universe.repository import JsonUniverseRepository, default_universe_path
 
@@ -47,24 +48,41 @@ def _write_private(path: Path, contents: str) -> None:
         os.close(descriptor)
 
 
-@pytest.mark.parametrize(
-    ("platform_name", "expected_parts"),
-    (
-        ("linux", (".local", "share", "phalanx", "universe.json")),
-        ("darwin", ("Library", "Application Support", "Phalanx", "universe.json")),
-        ("win32", ("AppData", "Local", "Phalanx", "universe.json")),
-    ),
-)
-def test_default_path_uses_os_specific_user_data_directory(
-    tmp_path: Path,
-    platform_name: str,
-    expected_parts: tuple[str, ...],
-) -> None:
+def test_default_path_uses_linux_user_data_directory(tmp_path: Path) -> None:
     home = tmp_path / "home"
 
-    assert default_universe_path(home=home, platform_name=platform_name) == home.joinpath(
-        *expected_parts
+    assert default_universe_path(home=home, platform_name="linux") == home.joinpath(
+        ".local", "share", "phalanx", "universe.json"
     )
+
+
+@pytest.mark.parametrize("platform_name", ("darwin", "win32"))
+def test_default_path_rejects_unsupported_platform_before_resolving_home(
+    monkeypatch: pytest.MonkeyPatch,
+    platform_name: str,
+) -> None:
+    def fail_home(cls: type[Path]) -> Path:
+        raise AssertionError("unsupported platforms must fail before resolving Path.home")
+
+    monkeypatch.setattr(Path, "home", classmethod(fail_home))
+
+    with pytest.raises(UnsupportedPlatformError, match=r"Linux.*WSL"):
+        default_universe_path(platform_name=platform_name)
+
+
+@pytest.mark.parametrize("platform_name", ("darwin", "win32"))
+def test_repository_rejects_unsupported_platform_with_injected_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform_name: str,
+) -> None:
+    path = tmp_path / "data" / "universe.json"
+    monkeypatch.setattr(universe_repository.sys, "platform", platform_name)
+
+    with pytest.raises(UnsupportedPlatformError, match=r"Linux.*WSL"):
+        JsonUniverseRepository(path)
+
+    assert not path.parent.exists()
 
 
 def test_injected_repository_path_never_resolves_home(
@@ -96,7 +114,7 @@ def test_repository_persists_versioned_utf8_json_with_private_modes(tmp_path: Pa
     path = tmp_path / "data" / "universe.json"
     repository = JsonUniverseRepository(path)
     first = _stock()
-    second = _stock("035720", "카카오", StockMarket.KOSDAQ)
+    second = _stock("035900", "JYP Ent.", StockMarket.KOSDAQ)
 
     repository.add(first)
     repository.add(second)
@@ -120,8 +138,8 @@ def test_repository_persists_versioned_utf8_json_with_private_modes(tmp_path: Pa
                 "enabled": True,
                 "market": "KOSDAQ",
                 "note": "합성 테스트 메모",
-                "stock_code": "035720",
-                "stock_name": "카카오",
+                "stock_code": "035900",
+                "stock_name": "JYP Ent.",
             },
         ],
     }
@@ -175,15 +193,15 @@ def test_atomic_replace_failure_preserves_existing_file_and_repository_recovers(
 
     monkeypatch.setattr(universe_repository.os, "replace", fail_replace)
     with pytest.raises(UniverseStorageError, match="원자적으로 저장"):
-        repository.add(_stock("035720", "카카오", StockMarket.KOSDAQ))
+        repository.add(_stock("035900", "JYP Ent.", StockMarket.KOSDAQ))
 
     assert path.read_bytes() == original_contents
     assert repository.list_all() == (_stock(),)
     assert not tuple(path.parent.glob(f".{path.name}.*.tmp"))
 
     monkeypatch.setattr(universe_repository.os, "replace", original_replace)
-    repository.add(_stock("035720", "카카오", StockMarket.KOSDAQ))
-    assert tuple(stock.stock_code for stock in repository.list_all()) == ("005930", "035720")
+    repository.add(_stock("035900", "JYP Ent.", StockMarket.KOSDAQ))
+    assert tuple(stock.stock_code for stock in repository.list_all()) == ("005930", "035900")
 
 
 def test_write_failure_leaves_no_partial_universe_file(

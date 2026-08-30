@@ -84,28 +84,28 @@ KIS 접근토큰 캐시의 기본 운영 위치도 저장소 외부로 고정합
 
 투자 후보 유니버스는 사용자가 직접 등록한 한국 주식의 종목코드, 종목명, 시장, 활성화 여부와 선택적 메모를 로컬 JSON 파일에 저장합니다. 이 기능은 KIS API나 다른 네트워크에 접속하지 않으며 시세 조회, 최적화, 주문 기능을 포함하지 않습니다. 계좌 스냅샷의 **READ ONLY** 경계에도 영향을 주지 않습니다.
 
-기본 저장 위치는 운영체제별 사용자 데이터 디렉터리입니다.
+현재 MVP의 로컬 유니버스 저장소는 POSIX 파일 권한과 디렉터리 파일 디스크립터를 사용하는 **Linux와 WSL만 지원**합니다. 기본 저장 위치는 다음과 같습니다.
 
 ```text
-Linux:  ~/.local/share/phalanx/universe.json
-macOS:  ~/Library/Application Support/Phalanx/universe.json
-Windows: %USERPROFILE%\AppData\Local\Phalanx\universe.json
+~/.local/share/phalanx/universe.json
 ```
 
-Linux와 macOS에서는 저장 디렉터리와 JSON/잠금 파일을 각각 `0700`, `0600` 권한으로 보호합니다. 저장은 같은 디렉터리의 private 임시파일을 디스크에 동기화한 뒤 원자 교체하므로 쓰기 실패 시 기존 파일을 보존합니다. 손상되거나 지원하지 않는 JSON은 자동 초기화하거나 덮어쓰지 않고 명확한 오류로 보고합니다.
+저장 디렉터리와 JSON/잠금 파일은 각각 `0700`, `0600` 권한으로 보호합니다. 저장은 같은 디렉터리의 private 임시파일을 디스크에 동기화한 뒤 원자 교체하므로 쓰기 실패 시 기존 파일을 보존합니다. 손상되거나 지원하지 않는 JSON은 자동 초기화하거나 덮어쓰지 않고 명확한 오류로 보고합니다.
+
+macOS와 네이티브 Windows에서는 이 저장소를 시작하지 않고 미지원 플랫폼 오류를 반환합니다. 네이티브 Windows 지원은 향후 GUI·패키징 단계에서 운영체제에 맞는 별도 저장소 구현으로 제공합니다.
 
 종목은 등록 시 기본적으로 활성화됩니다. 종목코드는 공백 없는 6자리 숫자이고 시장은 `KOSPI` 또는 `KOSDAQ`이어야 합니다.
 
 ```bash
 uv run phalanx universe add 005930 삼성전자 --market KOSPI --note "반도체 대형주"
-uv run phalanx universe add 035720 카카오 --market KOSDAQ
+uv run phalanx universe add 035720 카카오 --market KOSPI
 uv run phalanx universe list
 uv run phalanx universe disable 035720
 uv run phalanx universe enable 035720
 uv run phalanx universe remove 035720
 ```
 
-CLI는 저장소를 직접 다루지 않고 유니버스 서비스 계층을 호출합니다. 향후 GUI도 같은 서비스 계층을 사용할 수 있습니다.
+종목코드와 실제 상장 시장의 일치 여부를 네트워크로 조회하거나 검증하지 않으므로 사용자가 올바른 값을 입력해야 합니다. CLI는 저장소를 직접 다루지 않고 유니버스 서비스 계층을 호출합니다. 향후 GUI도 같은 서비스 계층을 사용할 수 있습니다.
 
 ## CLI 계약
 

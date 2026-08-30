@@ -41,6 +41,10 @@ class UniverseStorageError(UniverseError):
     """Base class for safe local universe persistence failures."""
 
 
+class UnsupportedPlatformError(UniverseStorageError):
+    """Raised when the POSIX repository is used outside Linux or WSL."""
+
+
 class UnsafeUniversePathError(UniverseStorageError):
     """Raised when the universe path cannot be accessed safely."""
 
@@ -62,4 +66,5 @@ __all__ = [
     "UniverseStorageError",
     "UniverseValidationError",
     "UnsafeUniversePathError",
+    "UnsupportedPlatformError",
 ]

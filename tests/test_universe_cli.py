@@ -47,7 +47,7 @@ def test_all_universe_commands_share_persistent_service_and_render_status_table(
     )
     second_add = runner.invoke(
         cli.app,
-        ["universe", "add", "035720", "카카오", "-m", "KOSDAQ"],
+        ["universe", "add", "035900", "JYP Ent.", "-m", "KOSDAQ"],
         color=False,
     )
     disabled = runner.invoke(cli.app, ["universe", "disable", "005930"], color=False)
@@ -71,22 +71,22 @@ def test_all_universe_commands_share_persistent_service_and_render_status_table(
         "KOSPI",
         "반도체 대형주",
         "활성",
-        "035720",
-        "카카오",
+        "035900",
+        "JYP Ent.",
         "KOSDAQ",
     ):
         assert expected in listed.stdout
     assert path.is_file()
 
     enabled = runner.invoke(cli.app, ["universe", "enable", "005930"], color=False)
-    removed = runner.invoke(cli.app, ["universe", "remove", "035720"], color=False)
+    removed = runner.invoke(cli.app, ["universe", "remove", "035900"], color=False)
     final_list = runner.invoke(cli.app, ["universe", "list"], color=False)
 
     assert enabled.exit_code == 0
     assert "활성화됨: 005930 삼성전자" in enabled.stdout
     assert removed.exit_code == 0
-    assert "삭제됨: 035720 카카오" in removed.stdout
-    assert "035720" not in final_list.stdout
+    assert "삭제됨: 035900 JYP Ent." in removed.stdout
+    assert "035900" not in final_list.stdout
     assert "005930" in final_list.stdout
 
 
@@ -147,7 +147,7 @@ def test_cli_reports_duplicate_stock_without_modifying_original(
 
     duplicate = runner.invoke(
         cli.app,
-        ["universe", "add", "005930", "다른이름", "--market", "KOSDAQ"],
+        ["universe", "add", "005930", "삼성전자", "--market", "KOSPI"],
         color=False,
     )
 
