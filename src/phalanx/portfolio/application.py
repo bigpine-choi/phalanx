@@ -13,8 +13,10 @@ from phalanx.domain import (
     AlignedReturnMatrix,
     AllocationBacktestConfig,
     AllocationResearchTrial,
+    DynamicRiskModelConfig,
     HistoricalUniverseAnalysis,
     KoreanStock,
+    RiskModelResearchTrial,
 )
 from phalanx.kis.market_data_client import KisRateLimitCallback, KisRequestPacer
 from phalanx.market_data.application import run_production_universe_market_data
@@ -27,6 +29,12 @@ from phalanx.portfolio.performance import analyze_historical_universe
 from phalanx.portfolio.report_storage import save_historical_report
 from phalanx.portfolio.reporting import render_historical_report_html
 from phalanx.portfolio.returns import build_aligned_return_matrix
+from phalanx.portfolio.risk_model_research import (
+    RiskModelEstimator,
+    create_failed_risk_model_trial,
+    create_risk_model_research_trial,
+)
+from phalanx.portfolio.risk_model_trial_registry import JsonRiskModelTrialRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +51,14 @@ class AllocationResearchApplicationResult:
     """One completed or failed calculation trial after safe persistence."""
 
     trial: AllocationResearchTrial
+    saved_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class RiskModelResearchApplicationResult:
+    """One completed or failed dynamic-risk-model trial after persistence."""
+
+    trial: RiskModelResearchTrial
     saved_path: Path
 
 
@@ -153,6 +169,61 @@ def run_production_allocation_research(
     return AllocationResearchApplicationResult(trial=trial, saved_path=saved_path)
 
 
+def run_production_risk_model_research(
+    start: date,
+    end: date,
+    output_dir: Path,
+    *,
+    config: DynamicRiskModelConfig | None = None,
+    estimator: RiskModelEstimator | None = None,
+    credentials_path: Path | None = None,
+    token_cache_path: Path | None = None,
+    universe_path: Path | None = None,
+    transport: httpx.BaseTransport | None = None,
+    rate_limit_callback: KisRateLimitCallback | None = None,
+    request_pacer: KisRequestPacer | None = None,
+    trial_id_factory: Callable[[], str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> RiskModelResearchApplicationResult:
+    """Fetch once, run four independent rolling risk scenarios, and persist."""
+
+    histories = run_production_universe_market_data(
+        start,
+        end,
+        credentials_path=credentials_path,
+        token_cache_path=token_cache_path,
+        universe_path=universe_path,
+        transport=transport,
+        rate_limit_callback=rate_limit_callback,
+        request_pacer=request_pacer,
+    )
+    selected_config = DynamicRiskModelConfig() if config is None else config
+    try:
+        matrix = build_aligned_return_matrix(histories)
+    except Exception as error:
+        trial = create_failed_risk_model_trial(
+            tuple(dict.fromkeys(history.stock.stock_code for history in histories)),
+            start,
+            end,
+            error,
+            config=selected_config,
+            trial_id_factory=trial_id_factory,
+            clock=clock,
+        )
+    else:
+        trial = create_risk_model_research_trial(
+            matrix,
+            start,
+            end,
+            config=selected_config,
+            estimator=estimator,
+            trial_id_factory=trial_id_factory,
+            clock=clock,
+        )
+    saved_path = JsonRiskModelTrialRegistry(output_dir).save(trial)
+    return RiskModelResearchApplicationResult(trial=trial, saved_path=saved_path)
+
+
 def _stocks_in_matrix_order(
     histories: tuple[StockDailyBars, ...],
     matrix: AlignedReturnMatrix,
@@ -168,7 +239,9 @@ def _stocks_in_matrix_order(
 __all__ = [
     "AllocationResearchApplicationResult",
     "HistoricalReportResult",
+    "RiskModelResearchApplicationResult",
     "run_production_aligned_returns",
     "run_production_allocation_research",
     "run_production_historical_report",
+    "run_production_risk_model_research",
 ]

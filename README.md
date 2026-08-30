@@ -1,6 +1,6 @@
 # Phalanx
 
-Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투자증권 실전계좌의 예수금 총액과 국내주식 잔고를 읽어 불변 JSON 스냅샷으로 저장하고, 사람이 직접 관리하는 로컬 투자 후보 유니버스, KIS 국내주식 일별 시세 조회, 공통 거래일 수익률 행렬, 과거 유니버스 HTML 리포트와 재현 가능한 자산배분 연구 harness를 제공합니다.
+Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투자증권 실전계좌의 예수금 총액과 국내주식 잔고를 읽어 불변 JSON 스냅샷으로 저장하고, 사람이 직접 관리하는 로컬 투자 후보 유니버스, KIS 국내주식 일별 시세 조회, 공통 거래일 수익률 행렬, 과거 유니버스 HTML 리포트, 재현 가능한 자산배분 연구 harness와 동적 위험모형 연구 계층을 제공합니다.
 
 ## 현재 마일스톤의 안전 경계
 
@@ -11,7 +11,7 @@ Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투
 - `orderable_cash`는 이번 마일스톤에서 제공되지 않아 `None`/`null`로 유지하고 터미널에는 `미제공`으로 표시합니다. 향후 매매계획 단계에서 매수가능조회 API의 `nrcvb_buy_amt`를 별도로 확인합니다.
 - API 키, 앱 시크릿, 계좌번호와 접근토큰은 Git에 포함하지 않습니다. `runtime/` 제외 규칙은 방어 목적으로 유지합니다.
 
-현재 브랜치는 외부 자격증명, OAuth 토큰 캐시, 국내주식 잔고 파싱·연속조회, 불변 스냅샷 저장, 로컬 투자 후보 관리, 수정주가 기준 일별 OHLCV 조회, 공통 거래일 단순수익률 계산, self-contained 과거 성과 리포트와 조건부 자산배분 연구 harness까지 구성합니다. 실제 자격증명과 실제 KIS API는 자동 테스트에서 사용하지 않습니다.
+현재 브랜치는 외부 자격증명, OAuth 토큰 캐시, 국내주식 잔고 파싱·연속조회, 불변 스냅샷 저장, 로컬 투자 후보 관리, 수정주가 기준 일별 OHLCV 조회, 공통 거래일 단순수익률 계산, self-contained 과거 성과 리포트, 조건부 자산배분 연구 harness와 네 개의 독립 공분산 시나리오 연구까지 구성합니다. 실제 자격증명과 실제 KIS API는 자동 테스트에서 사용하지 않습니다.
 
 ## 개발 환경
 
@@ -226,6 +226,50 @@ uv run phalanx portfolio allocation-research \
 - KOSPI benchmark, 정수주, IEWMA, Ledoit-Wolf, ERC, GMV, HRP, HERC, 알파, 모멘텀, Black–Litterman(BL), Max-Sharpe는 이번 연구 범위 밖입니다.
 - 기대수익률 모델, optimizer, 종목 추천, 실계좌 목표수량과 주문 초안도 만들지 않습니다.
 - KIS 연결은 기존 실전계좌 **READ ONLY** 일별 시세 조회만 사용하며 매수·매도·정정·취소 주문을 전송하지 않습니다.
+
+## 동적 위험모형 연구
+
+동적 위험모형 연구는 다음 constrained ERC 단계가 시나리오를 이름으로 명시해 소비할 수 있도록, 감사 가능한 **다음 공통 수익률 기간의 공분산 예측**을 생성합니다. 기대수익률, 자산 비중, 수량 또는 주문을 만들지 않으며 네 시나리오를 결합하거나 순위를 매기지 않습니다.
+
+```bash
+uv run phalanx portfolio risk-model-research \
+  --start 2023-01-01 \
+  --end 2026-08-31 \
+  --output-dir research/risk-model-trials
+```
+
+활성 유니버스의 `AlignedReturnMatrix`를 그대로 사용하므로 종목 등록 순서와 공통 거래일 교집합을 보존합니다. forward fill, 보간, 임의 결측 보정은 하지 않습니다. 최초 snapshot은 close-to-close 수익률 504개가 알려진 신호일에 만들고 이후 5 공통 거래일 간격으로 반복합니다. 각 snapshot은 해당 as-of 종가 이하의 최근 최대 756개 수익률만 소비하며, as-of 이후 행은 estimator에 전달하지 않습니다.
+
+v1은 다음 네 공분산 시나리오를 항상 이 순서로 한 번씩 독립 생성합니다.
+
+1. `long_run_ledoit_wolf`: 전체 trailing window에 `LedoitWolf(assume_centered=True, store_precision=False)`를 적용한 zero-daily-mean second moment
+2. `fast_iewma`: 변동성 반감기 21일, 상관관계 반감기 63일인 인과적 IEWMA
+3. `slow_iewma`: 변동성 반감기 63일, 상관관계 반감기 125일인 인과적 IEWMA
+4. `downside_stress_ledoit_wolf`: 현재 유니버스 동일가중 횡단면 수익률이 가장 낮은 정확히 하위 20% 날짜의 전체 수익률 벡터에 적용한 zero-centered stress second moment
+
+IEWMA의 감쇠계수는 다음과 같습니다.
+
+```text
+beta(H) = exp(log(0.5) / H) = 2 ** (-1 / H)
+```
+
+finite-history 가중치를 합계 1로 정규화합니다. 변동성 seed는 `max(20, 종목 수)`개의 raw squared return으로 만들고, 이후 각 날짜 `t`에는 반드시 `r_t`를 아직 반영하지 않은 `sigma_t`로 `z_t = r_t / sigma_t`를 먼저 계산합니다. 상관관계 입력인 `z_t`만 `[-4.2, 4.2]`로 자르고, 그 뒤 clipping하지 않은 `r_t²`로 변동성 상태를 갱신합니다. 마지막 raw return까지 갱신한 `sigma_(T+1)`이 다음 수익률 기간의 예측 대각원소에 반영됩니다.
+
+하방 스트레스 날짜는 원래 `Decimal` 동일가중 수익률과 날짜의 쌍을 오름차순으로 정렬한 뒤 `ceil(0.20 × T)`개를 정확히 선택합니다. 동률은 날짜로 결정되며 `<= quantile` 비교를 사용하지 않습니다. 선택한 공통 날짜마다 일부 자산만 자르는 대신 모든 종목의 원래 수익률 벡터를 함께 사용합니다. 따라서 이는 일반적인 unconditional covariance나 개별 종목 semivariance가 아니라 **현재 유니버스 동일가중 하위 20% 날짜의 조건부 zero-centered stress second moment**입니다.
+
+통계 estimator 경계에서 원본 `Decimal` 행렬을 한 번만 NumPy `float64`의 `T × N` 행렬로 변환하고 네 시나리오가 이를 공유합니다. 기존 비용·NAV·자기금융 회계는 계속 고정 precision의 로컬 `Decimal` context를 사용하며 변경하지 않습니다. 최종 일별 공분산에만 252를 정확히 한 번 곱해 연환산하고, 상관계수에는 연환산 계수를 적용하지 않습니다.
+
+모든 결과는 대칭화한 뒤 고윳값 품질 검사를 거칩니다. 규모 상대 허용오차 `1e-10`과 절대 허용오차 `1e-15` 안의 작은 음의 고윳값만 0으로 투영합니다. 양의 eigenvalue floor나 diagonal ridge는 추가하지 않으므로 rank deficiency를 숨기거나 가짜 위험을 만들지 않습니다. 허용오차보다 물질적인 음의 고윳값 또는 상대 Frobenius 보정 크기 `1e-8` 초과는 전체 연구 실패입니다. 각 trial에는 전체 원본 Decimal 수익률, 설정·입력 fingerprint, NumPy·scikit-learn·Python 버전, 모든 rolling snapshot과 PSD 진단을 별도 private JSON으로 기록합니다.
+
+해석에는 다음 제한이 있습니다.
+
+- 현재 활성 유니버스를 과거에도 알고 있었다고 가정하므로 survivorship bias와 hindsight-selection bias가 있습니다.
+- 어떤 시나리오도 최적 또는 추천 covariance로 지정하지 않으며, 데이터에 맞춰 반감기나 하방 비율을 조정하는 CLI 옵션도 제공하지 않습니다.
+- expected return, alpha, Black–Litterman, CM-IEWMA, covariance blend, Loewner envelope, ERC·GMV·HERC·Max-Sharpe와 optimizer는 이 단계의 범위 밖입니다.
+- 결과에는 자산 비중, 정수주·분할주 수량, 주문 초안이 없습니다.
+- KIS 연결은 기존 실전계좌 **READ ONLY** 일별 시세 조회뿐이며 주문 endpoint나 주문 TR ID를 추가하거나 주문을 전송하지 않습니다.
+
+수치 정의는 [IEWMA 논문](https://arxiv.org/abs/2305.19484), [저자 공식 재현 코드](https://github.com/cvxgrp/cov_pred_finance)와 [scikit-learn LedoitWolf API](https://scikit-learn.org/stable/modules/generated/sklearn.covariance.LedoitWolf.html)를 참고합니다. Phalanx v1의 finite-history 정규화, 인과적 update 순서, 고정 반감기와 PSD 품질 경계는 위 계약대로 trial에 함께 기록합니다.
 
 ## CLI 계약
 

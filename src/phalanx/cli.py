@@ -8,6 +8,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import IntEnum
 from pathlib import Path
+from statistics import median
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
@@ -18,12 +19,19 @@ from rich.table import Table
 from phalanx.application import AccountSnapshotResult, run_production_snapshot
 from phalanx.config import ConfigError
 from phalanx.domain import (
+    SCENARIO_KIND_ORDER,
     AccountSnapshot,
     AccountSummary,
     AlignedReturnMatrix,
     AllocationPolicyOutcomeStatus,
     AllocationTrialStatus,
+    CovarianceScenario,
     DailyBar,
+    DownsideStressMetadata,
+    IewmaMetadata,
+    LedoitWolfMetadata,
+    PsdDiagnostics,
+    RiskModelResearchStatus,
 )
 from phalanx.kis.errors import (
     KisAuthError,
@@ -45,14 +53,17 @@ from phalanx.market_data.validation import validate_daily_date_range
 from phalanx.portfolio.application import (
     AllocationResearchApplicationResult,
     HistoricalReportResult,
+    RiskModelResearchApplicationResult,
     run_production_aligned_returns,
     run_production_allocation_research,
     run_production_historical_report,
+    run_production_risk_model_research,
 )
 from phalanx.portfolio.errors import (
     AllocationTrialStorageError,
     HistoricalReportError,
     PortfolioAnalysisError,
+    RiskModelTrialStorageError,
 )
 from phalanx.snapshots import SnapshotStorageError
 from phalanx.universe.errors import UniverseError
@@ -480,6 +491,148 @@ def render_allocation_research_result(
     console.print("KIS READ ONLY · 주문 미전송")
 
 
+def render_risk_model_research_start(
+    start: str,
+    end: str,
+    output_dir: Path,
+    console: Console,
+) -> None:
+    """Announce risk-model research before credentials or network work begins."""
+
+    console.print("동적 위험모형 연구 시작 · KIS READ ONLY", style="bold green")
+    console.print("조회 대상: 활성 유니버스")
+    console.print(f"시작일: {start}")
+    console.print(f"종료일: {end}")
+    console.print(f"출력 디렉터리: {output_dir}")
+
+
+def render_risk_model_research_result(
+    result: RiskModelResearchApplicationResult,
+    console: Console,
+) -> None:
+    """Render completed scenario diagnostics and the persisted trial path."""
+
+    trial = result.trial
+    if trial.status is RiskModelResearchStatus.SUCCEEDED:
+        research = trial.result
+        if research is None or not research.snapshots:
+            raise RuntimeError("successful risk-model trial has no snapshots")
+        console.print("동적 위험모형 독립 scenario · READ ONLY", style="bold")
+        for kind in SCENARIO_KIND_ORDER:
+            scenarios = tuple(snapshot.get_scenario(kind) for snapshot in research.snapshots)
+            _render_risk_model_scenario(
+                scenarios,
+                research.snapshots[0].as_of_date,
+                research.snapshots[-1].as_of_date,
+                console,
+            )
+
+    console.print(f"trial 상태: {trial.status.value}")
+    console.print(f"trial JSON 저장 경로: {result.saved_path}")
+    console.print("현재 유니버스 조건부 위험모형 연구")
+    console.print("KIS READ ONLY · 주문 미전송")
+
+
+def _render_risk_model_scenario(
+    scenarios: tuple[CovarianceScenario, ...],
+    first_as_of: date,
+    last_as_of: date,
+    console: Console,
+) -> None:
+    last = scenarios[-1]
+    volatilities = last.annualized_volatilities
+    diagnostics_by_snapshot = tuple(_risk_scenario_diagnostics(scenario) for scenario in scenarios)
+    repair_count = sum(
+        any(diagnostics.repaired for diagnostics in snapshot_diagnostics)
+        for snapshot_diagnostics in diagnostics_by_snapshot
+    )
+    maximum_relative_repair = max(
+        diagnostics.relative_repair_norm
+        for snapshot_diagnostics in diagnostics_by_snapshot
+        for diagnostics in snapshot_diagnostics
+    )
+
+    table = Table(title=last.kind.value)
+    table.add_column("항목", style="bold")
+    table.add_column("값", justify="right")
+    table.add_row("snapshot 수", f"{len(scenarios)}개")
+    table.add_row("최초 as-of", first_as_of.isoformat())
+    table.add_row("최종 as-of", last_as_of.isoformat())
+    table.add_row("estimator 또는 반감기", _risk_scenario_estimator(last))
+    table.add_row(
+        "마지막 연환산 변동성 min / median / max",
+        " / ".join(
+            format(value, ".2%")
+            for value in (min(volatilities), median(volatilities), max(volatilities))
+        ),
+    )
+    table.add_row(
+        "마지막 평균 비대각 상관계수",
+        _format_average_off_diagonal_correlation(last),
+    )
+    table.add_row(
+        "마지막 최소 고윳값",
+        format(last.psd_diagnostics.minimum_eigenvalue_after, ".6g"),
+    )
+    table.add_row(
+        "마지막 condition number",
+        "N/A"
+        if last.psd_diagnostics.condition_number is None
+        else format(last.psd_diagnostics.condition_number, ".6g"),
+    )
+    table.add_row("PSD 보정 snapshot 수", f"{repair_count}개")
+    table.add_row("최대 상대 PSD 보정", format(maximum_relative_repair, ".6g"))
+    table.add_row("scenario metadata", _risk_scenario_metadata(last))
+    console.print(table)
+
+
+def _risk_scenario_diagnostics(
+    scenario: CovarianceScenario,
+) -> tuple[PsdDiagnostics, ...]:
+    diagnostics: tuple[PsdDiagnostics, ...] = (scenario.psd_diagnostics,)
+    if isinstance(scenario.metadata, IewmaMetadata):
+        diagnostics = (*diagnostics, scenario.metadata.correlation_psd_diagnostics)
+    return diagnostics
+
+
+def _risk_scenario_estimator(scenario: CovarianceScenario) -> str:
+    metadata = scenario.metadata
+    if isinstance(metadata, IewmaMetadata):
+        return (
+            f"변동성 HL {metadata.volatility_half_life} · "
+            f"상관관계 HL {metadata.correlation_half_life}"
+        )
+    return metadata.estimator
+
+
+def _risk_scenario_metadata(scenario: CovarianceScenario) -> str:
+    metadata = scenario.metadata
+    if isinstance(metadata, LedoitWolfMetadata):
+        return f"shrinkage {metadata.shrinkage:.6f}"
+    if isinstance(metadata, DownsideStressMetadata):
+        return f"하방 선택 {metadata.selected_count}개 · shrinkage {metadata.shrinkage:.6f}"
+    return (
+        f"변동성 HL {metadata.volatility_half_life} · "
+        f"상관관계 HL {metadata.correlation_half_life} · "
+        f"변동성 ESS {metadata.volatility_effective_sample_size:.2f} · "
+        f"상관관계 ESS {metadata.correlation_effective_sample_size:.2f}"
+    )
+
+
+def _format_average_off_diagonal_correlation(
+    scenario: CovarianceScenario,
+) -> str:
+    values = tuple(
+        value
+        for row_index, row in enumerate(scenario.correlation_matrix)
+        for column_index, value in enumerate(row)
+        if row_index != column_index
+    )
+    if not values:
+        return "N/A"
+    return format(sum(values) / len(values), ".6f")
+
+
 def _universe_error(error: UniverseError) -> None:
     _console(stderr=True).print(f"유니버스 오류: {error}")
     raise typer.Exit(ExitCode.UNIVERSE)
@@ -683,6 +836,51 @@ def run_cli_allocation_research(
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_risk_model_research(
+    runner: Callable[[], RiskModelResearchApplicationResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run one persisted dynamic-risk-model trial with secret-safe outcomes."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_risk_model_research_result(result, output)
+        if result.trial.status is not RiskModelResearchStatus.SUCCEEDED:
+            errors.print("동적 위험모형 연구 오류: 한 개 이상의 snapshot 계산이 실패했습니다.")
+            return int(ExitCode.PORTFOLIO_ANALYSIS)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except PortfolioAnalysisError:
+        errors.print("동적 위험모형 연구 오류: 분석·수치 품질 검사를 완료하지 못했습니다.")
+        return int(ExitCode.PORTFOLIO_ANALYSIS)
+    except RiskModelTrialStorageError:
+        errors.print("위험모형 trial 저장 오류: JSON을 안전하게 저장하지 못했습니다.")
+        return int(ExitCode.PORTFOLIO_STORAGE)
+    except (
+        MarketDataError,
+        KisMarketDataClientError,
+        KisMarketDataParsingError,
+        UniverseError,
+    ) as error:
+        errors.print(f"시세 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 동적 위험모형 연구를 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 동적 위험모형 연구를 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def _exit_after_market_data[MarketDataResult](
     runner: Callable[[], MarketDataResult],
     renderer: Callable[[MarketDataResult, Console], None],
@@ -720,6 +918,16 @@ def _exit_after_allocation_research(
     console: Console | None = None,
 ) -> None:
     exit_code = run_cli_allocation_research(runner, console=console)
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
+def _exit_after_risk_model_research(
+    runner: Callable[[], RiskModelResearchApplicationResult],
+    *,
+    console: Console | None = None,
+) -> None:
+    exit_code = run_cli_risk_model_research(runner, console=console)
     if exit_code != ExitCode.SUCCESS:
         raise typer.Exit(exit_code)
 
@@ -939,6 +1147,32 @@ def portfolio_allocation_research(
     )
 
 
+@portfolio_app.command("risk-model-research")
+def portfolio_risk_model_research(
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="고유 위험모형 trial JSON 출력 디렉터리"),
+    ],
+) -> None:
+    """활성 유니버스의 조건부 동적 위험모형 연구를 실행합니다."""
+
+    output = _console()
+    render_risk_model_research_start(start, end, output_dir, output)
+    _exit_after_risk_model_research(
+        lambda: run_production_risk_model_research(
+            *_parse_cli_date_range(start, end),
+            output_dir,
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        console=output,
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -955,6 +1189,7 @@ __all__ = [
     "portfolio_allocation_research",
     "portfolio_historical_report",
     "portfolio_returns",
+    "portfolio_risk_model_research",
     "render_aligned_return_matrix",
     "render_allocation_research_result",
     "render_allocation_research_start",
@@ -964,6 +1199,8 @@ __all__ = [
     "render_market_data_start",
     "render_portfolio_returns_start",
     "render_rate_limit_notification",
+    "render_risk_model_research_result",
+    "render_risk_model_research_start",
     "render_snapshot_summary",
     "render_universe",
     "render_universe_market_data",
@@ -971,6 +1208,7 @@ __all__ = [
     "run_cli_historical_report",
     "run_cli_market_data",
     "run_cli_portfolio_returns",
+    "run_cli_risk_model_research",
     "run_cli_snapshot",
     "universe_add",
     "universe_disable",

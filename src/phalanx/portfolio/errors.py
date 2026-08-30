@@ -251,6 +251,107 @@ class AllocationTrialLockTimeoutError(AllocationTrialStorageError):
     """Raised when an output-specific trial lock cannot be acquired."""
 
 
+class RiskModelError(PortfolioAnalysisError):
+    """Base class for expected dynamic-risk-model calculation failures."""
+
+
+class RiskModelConfigurationError(RiskModelError):
+    """Raised when fixed risk-model settings violate their invariants."""
+
+
+class RiskModelAsOfDateNotFoundError(RiskModelError):
+    """Raised when an estimate date is absent from the aligned return matrix."""
+
+    def __init__(self, as_of_date: object) -> None:
+        self.as_of_date = as_of_date
+        super().__init__(f"위험모형 기준일 {as_of_date}이 공통 수익률 날짜에 없습니다.")
+
+
+class InsufficientRiskHistoryError(RiskModelError):
+    """Raised when a trailing estimate window is shorter than configured."""
+
+    def __init__(self, actual: int, required: int, *, as_of_date: object | None = None) -> None:
+        self.actual = actual
+        self.required = required
+        self.as_of_date = as_of_date
+        suffix = "" if as_of_date is None else f" · 기준일 {as_of_date}"
+        super().__init__(
+            f"위험모형 수익률 관측치가 부족합니다: {actual}개 (최소 {required}개 필요){suffix}."
+        )
+
+
+class InsufficientCorrelationHistoryError(RiskModelError):
+    """Raised when IEWMA has too few causal standardized observations."""
+
+    def __init__(self, actual: int, required: int, *, as_of_date: object | None = None) -> None:
+        self.actual = actual
+        self.required = required
+        self.as_of_date = as_of_date
+        suffix = "" if as_of_date is None else f" · 기준일 {as_of_date}"
+        super().__init__(
+            f"IEWMA 상관관계 관측치가 부족합니다: {actual}개 (최소 {required}개 필요){suffix}."
+        )
+
+
+class InsufficientDownsideHistoryError(RiskModelError):
+    """Raised when the deterministic downside subset is too small."""
+
+    def __init__(self, actual: int, required: int, *, as_of_date: object | None = None) -> None:
+        self.actual = actual
+        self.required = required
+        self.as_of_date = as_of_date
+        suffix = "" if as_of_date is None else f" · 기준일 {as_of_date}"
+        super().__init__(
+            f"하방 스트레스 선택 관측치가 부족합니다: {actual}개 (최소 {required}개 필요){suffix}."
+        )
+
+
+class DegenerateRiskSeriesError(RiskModelError):
+    """Raised when one stock has zero variance and no risk can be estimated."""
+
+    def __init__(self, stock_code: str) -> None:
+        self.stock_code = stock_code
+        super().__init__(
+            f"종목코드 {stock_code}의 수익률 분산이 0이어서 위험을 추정할 수 없습니다."
+        )
+
+
+class RiskModelNumericalError(RiskModelError):
+    """Raised when finite numerical estimation cannot be completed safely."""
+
+
+class MateriallyIndefiniteCovarianceError(RiskModelNumericalError):
+    """Raised when a matrix has a negative eigenvalue beyond numerical noise."""
+
+    def __init__(self, minimum_eigenvalue: float, tolerance: float) -> None:
+        self.minimum_eigenvalue = minimum_eigenvalue
+        self.tolerance = tolerance
+        super().__init__(
+            "공분산 행렬에 수치 허용오차를 넘는 음의 고윳값이 있습니다: "
+            f"최솟값 {minimum_eigenvalue:.6g}, 허용오차 {tolerance:.6g}."
+        )
+
+
+class RiskModelQualityError(RiskModelNumericalError):
+    """Raised when numerical repair would exceed the configured quality ceiling."""
+
+
+class RiskModelTrialStorageError(Exception):
+    """Base class for expected dynamic-risk-model trial storage failures."""
+
+
+class RiskModelTrialAlreadyExistsError(RiskModelTrialStorageError):
+    """Raised when a risk-model trial file would be overwritten."""
+
+
+class RiskModelTrialLockTimeoutError(RiskModelTrialStorageError):
+    """Raised when a risk-model trial lock cannot be acquired."""
+
+
+class RiskModelTrialCorruptionError(RiskModelTrialStorageError):
+    """Raised when a stored risk-model trial is malformed or inconsistent."""
+
+
 __all__ = [
     "AllocationResearchError",
     "AllocationSelfFinancingError",
@@ -259,6 +360,7 @@ __all__ = [
     "AllocationTrialLockTimeoutError",
     "AllocationTrialStorageError",
     "AllocationZeroVolatilityError",
+    "DegenerateRiskSeriesError",
     "DuplicateAllocationBarDateError",
     "DuplicateAllocationStockCodeError",
     "DuplicateDailyBarDateError",
@@ -275,7 +377,10 @@ __all__ = [
     "HistoricalReportStorageError",
     "InsufficientAllocationObservationsError",
     "InsufficientCommonObservationsError",
+    "InsufficientCorrelationHistoryError",
+    "InsufficientDownsideHistoryError",
     "InsufficientPerformanceObservationsError",
+    "InsufficientRiskHistoryError",
     "InsufficientStockObservationsError",
     "InvalidAlignedPricePanelError",
     "InvalidAlignedReturnMatrixError",
@@ -289,8 +394,18 @@ __all__ = [
     "InvalidMinimumObservationsError",
     "InvalidPerformanceMetricsError",
     "InvalidPerformanceReturnError",
+    "MateriallyIndefiniteCovarianceError",
     "PortfolioAnalysisError",
     "ReturnStockCodeMismatchError",
+    "RiskModelAsOfDateNotFoundError",
+    "RiskModelConfigurationError",
+    "RiskModelError",
+    "RiskModelNumericalError",
+    "RiskModelQualityError",
+    "RiskModelTrialAlreadyExistsError",
+    "RiskModelTrialCorruptionError",
+    "RiskModelTrialLockTimeoutError",
+    "RiskModelTrialStorageError",
     "UnsortedAllocationBarsError",
     "UnsortedDailyBarsError",
 ]
