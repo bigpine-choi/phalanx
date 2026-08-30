@@ -31,6 +31,14 @@ class AlignedReturnMatrix:
             raise InvalidAlignedReturnMatrixError("dates는 tuple이어야 합니다.")
         if not isinstance(self.values, tuple):
             raise InvalidAlignedReturnMatrixError("values는 tuple이어야 합니다.")
+        if not self.stock_codes:
+            raise InvalidAlignedReturnMatrixError(
+                "수익률 행렬에는 최소 1개의 종목코드가 필요합니다."
+            )
+        if not self.dates or not self.values:
+            raise InvalidAlignedReturnMatrixError(
+                "수익률 행렬에는 최소 1개의 수익률 관측치가 필요합니다."
+            )
 
         seen_codes: set[str] = set()
         for stock_code in self.stock_codes:

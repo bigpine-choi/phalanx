@@ -33,6 +33,24 @@ def test_aligned_return_matrix_preserves_decimal_values_and_is_frozen() -> None:
         matrix.dates = ()
 
 
+def test_aligned_return_matrix_rejects_a_zero_stock_zero_column_matrix() -> None:
+    with pytest.raises(InvalidAlignedReturnMatrixError, match="최소 1개의 종목코드"):
+        AlignedReturnMatrix(
+            stock_codes=(),
+            dates=(date(2026, 8, 4),),
+            values=((),),
+        )
+
+
+def test_aligned_return_matrix_rejects_zero_return_observations() -> None:
+    with pytest.raises(InvalidAlignedReturnMatrixError, match="최소 1개의 수익률 관측치"):
+        AlignedReturnMatrix(
+            stock_codes=("005930",),
+            dates=(),
+            values=(),
+        )
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     (
