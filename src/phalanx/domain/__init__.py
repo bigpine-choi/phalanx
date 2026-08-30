@@ -9,6 +9,7 @@ from phalanx.domain.account import (
     RawEvidenceRecord,
     SnapshotEvidence,
 )
+from phalanx.domain.market_data import DailyBar
 from phalanx.domain.universe import KoreanStock, StockMarket
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "AccountSnapshot",
     "AccountSummary",
     "ApiPageEvidence",
+    "DailyBar",
     "KoreanStock",
     "RawEvidenceField",
     "RawEvidenceRecord",

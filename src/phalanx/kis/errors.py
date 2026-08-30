@@ -79,3 +79,76 @@ class KisBalanceProtocolError(KisBalanceClientError):
 
 class KisBalanceAuthenticationError(KisBalanceClientError):
     """A balance page remained unauthorized after its one allowed reauthentication."""
+
+
+class KisMarketDataParsingError(RuntimeError):
+    """Base failure for strict domestic-stock daily-price parsing."""
+
+
+class MissingMarketDataFieldError(KisMarketDataParsingError):
+    """A required daily-price response field was absent, null, or blank."""
+
+    def __init__(self, field_name: str, location: str) -> None:
+        self.field_name = field_name
+        self.location = location
+        super().__init__(f"Required market-data field {field_name} is missing at {location}.")
+
+
+class InvalidMarketDataDateError(KisMarketDataParsingError):
+    """A trading-date field was not a real YYYYMMDD date."""
+
+    def __init__(self, field_name: str, location: str) -> None:
+        self.field_name = field_name
+        self.location = location
+        super().__init__(f"Market-data date field {field_name} is invalid at {location}.")
+
+
+class InvalidMarketDataNumericFieldError(KisMarketDataParsingError):
+    """A price or volume field was not an accepted numeric string."""
+
+    def __init__(self, field_name: str, location: str) -> None:
+        self.field_name = field_name
+        self.location = location
+        super().__init__(f"Market-data numeric field {field_name} is invalid at {location}.")
+
+
+class InvalidMarketDataResponseStructure(KisMarketDataParsingError):
+    """A decoded daily-price body did not have the documented JSON structure."""
+
+
+class KisMarketDataApiError(KisMarketDataParsingError):
+    """KIS returned a non-success rt_cd with sanitized response metadata."""
+
+    def __init__(self, rt_cd: str, msg_cd: str, msg1: str) -> None:
+        self.rt_cd = rt_cd
+        self.msg_cd = msg_cd
+        self.msg1 = msg1
+        super().__init__(f"KIS API rejected the market-data request ({rt_cd}, {msg_cd}): {msg1}")
+
+
+class MarketDataDomainInvariantError(KisMarketDataParsingError):
+    """Parsed values violated an immutable DailyBar invariant."""
+
+
+class KisMarketDataClientError(RuntimeError):
+    """Base failure for the read-only domestic daily-price HTTP boundary."""
+
+
+class KisMarketDataHttpError(KisMarketDataClientError):
+    """A market-data HTTP exchange failed without exposing request details."""
+
+
+class KisMarketDataRateLimitError(KisMarketDataHttpError):
+    """KIS kept rejecting a market-data page after bounded rate-limit retries."""
+
+
+class KisMarketDataTimeoutError(KisMarketDataHttpError):
+    """A market-data request exceeded its explicit timeout."""
+
+
+class KisMarketDataProtocolError(KisMarketDataClientError):
+    """Market-data pagination or transport data violated the fixed contract."""
+
+
+class KisMarketDataAuthenticationError(KisMarketDataClientError):
+    """A market-data page remained unauthorized after one reauthentication."""
