@@ -1,4 +1,4 @@
-"""Immutable domain models for Phalanx account snapshots."""
+"""Immutable domain models for Phalanx."""
 
 from phalanx.domain.account import (
     AccountPosition,
@@ -9,13 +9,16 @@ from phalanx.domain.account import (
     RawEvidenceRecord,
     SnapshotEvidence,
 )
+from phalanx.domain.universe import KoreanStock, StockMarket
 
 __all__ = [
     "AccountPosition",
     "AccountSnapshot",
     "AccountSummary",
     "ApiPageEvidence",
+    "KoreanStock",
     "RawEvidenceField",
     "RawEvidenceRecord",
     "SnapshotEvidence",
+    "StockMarket",
 ]

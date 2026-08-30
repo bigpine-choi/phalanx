@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from enum import IntEnum
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 import typer
@@ -22,6 +23,9 @@ from phalanx.kis.errors import (
     KisBalanceParsingError,
 )
 from phalanx.snapshots import SnapshotStorageError
+from phalanx.universe.errors import UniverseError
+from phalanx.universe.repository import JsonUniverseRepository
+from phalanx.universe.service import UniverseService
 
 KOREA_TIMEZONE = ZoneInfo("Asia/Seoul")
 
@@ -34,13 +38,14 @@ class ExitCode(IntEnum):
     AUTHENTICATION = 20
     BALANCE_QUERY = 30
     SNAPSHOT_STORAGE = 40
+    UNIVERSE = 50
     UNEXPECTED = 70
     INTERRUPTED = 130
 
 
 app = typer.Typer(
     add_completion=False,
-    help="한국투자증권 실전계좌 read-only 스냅샷",
+    help="한국투자증권 read-only 계좌 스냅샷과 로컬 투자 후보 관리",
     invoke_without_command=True,
     no_args_is_help=False,
     pretty_exceptions_enable=False,
@@ -51,7 +56,14 @@ account_app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
+universe_app = typer.Typer(
+    add_completion=False,
+    help="사람이 관리하는 로컬 투자 후보 유니버스",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
 app.add_typer(account_app, name="account")
+app.add_typer(universe_app, name="universe")
 
 
 def _console(*, stderr: bool = False) -> Console:
@@ -151,6 +163,43 @@ def _render_positions(snapshot: AccountSnapshot, console: Console) -> None:
     console.print(table)
 
 
+def _build_universe_service() -> UniverseService:
+    """Build the default local universe graph without involving KIS."""
+
+    return UniverseService(JsonUniverseRepository())
+
+
+def render_universe(service: UniverseService, console: Console) -> None:
+    """Render all local candidates with an explicit activation state."""
+
+    stocks = service.list_stocks()
+    if not stocks:
+        console.print("투자 후보 유니버스가 비어 있습니다.")
+        return
+
+    table = Table(title="투자 후보 유니버스")
+    table.add_column("상태")
+    table.add_column("종목코드")
+    table.add_column("종목명")
+    table.add_column("시장")
+    table.add_column("메모")
+    for stock in stocks:
+        table.add_row(
+            "활성" if stock.enabled else "비활성",
+            stock.stock_code,
+            stock.stock_name,
+            stock.market.value,
+            stock.note or "-",
+            style=None if stock.enabled else "dim",
+        )
+    console.print(table)
+
+
+def _universe_error(error: UniverseError) -> None:
+    _console(stderr=True).print(f"유니버스 오류: {error}")
+    raise typer.Exit(ExitCode.UNIVERSE)
+
+
 def run_cli_snapshot(
     *,
     runner: Callable[[], AccountSnapshotResult] | None = None,
@@ -207,6 +256,81 @@ def account_snapshot() -> None:
     _exit_after_snapshot()
 
 
+@universe_app.command("list")
+def universe_list() -> None:
+    """등록된 투자 후보를 활성화 상태와 함께 표시합니다."""
+
+    try:
+        render_universe(_build_universe_service(), _console())
+    except UniverseError as error:
+        _universe_error(error)
+
+
+@universe_app.command("add")
+def universe_add(
+    stock_code: Annotated[str, typer.Argument(help="공백 없는 6자리 종목코드")],
+    stock_name: Annotated[str, typer.Argument(help="종목명")],
+    market: Annotated[
+        str,
+        typer.Option("--market", "-m", help="시장: KOSPI 또는 KOSDAQ"),
+    ],
+    note: Annotated[str | None, typer.Option("--note", "-n", help="선택적 메모")] = None,
+) -> None:
+    """새 투자 후보를 활성 상태로 등록합니다."""
+
+    try:
+        stock = _build_universe_service().add_stock(
+            stock_code,
+            stock_name,
+            market,
+            note=note,
+        )
+        _console().print(
+            f"등록됨: {stock.stock_code} {stock.stock_name} ({stock.market.value}) · 활성"
+        )
+    except UniverseError as error:
+        _universe_error(error)
+
+
+@universe_app.command("enable")
+def universe_enable(
+    stock_code: Annotated[str, typer.Argument(help="활성화할 6자리 종목코드")],
+) -> None:
+    """기존 투자 후보를 활성화합니다."""
+
+    try:
+        stock = _build_universe_service().enable_stock(stock_code)
+        _console().print(f"활성화됨: {stock.stock_code} {stock.stock_name}")
+    except UniverseError as error:
+        _universe_error(error)
+
+
+@universe_app.command("disable")
+def universe_disable(
+    stock_code: Annotated[str, typer.Argument(help="비활성화할 6자리 종목코드")],
+) -> None:
+    """기존 투자 후보를 비활성화합니다."""
+
+    try:
+        stock = _build_universe_service().disable_stock(stock_code)
+        _console().print(f"비활성화됨: {stock.stock_code} {stock.stock_name}")
+    except UniverseError as error:
+        _universe_error(error)
+
+
+@universe_app.command("remove")
+def universe_remove(
+    stock_code: Annotated[str, typer.Argument(help="삭제할 6자리 종목코드")],
+) -> None:
+    """기존 투자 후보를 유니버스에서 삭제합니다."""
+
+    try:
+        stock = _build_universe_service().remove_stock(stock_code)
+        _console().print(f"삭제됨: {stock.stock_code} {stock.stock_name}")
+    except UniverseError as error:
+        _universe_error(error)
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -219,5 +343,11 @@ __all__ = [
     "app",
     "main",
     "render_snapshot_summary",
+    "render_universe",
     "run_cli_snapshot",
+    "universe_add",
+    "universe_disable",
+    "universe_enable",
+    "universe_list",
+    "universe_remove",
 ]
