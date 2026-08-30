@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -203,6 +204,25 @@ def test_fingerprints_are_canonical_deterministic_and_order_sensitive() -> None:
     ) != fingerprint_allocation_policies(tuple(reversed(policies)), _CODE_MODEL_VERSION)
     assert fingerprint_market_data((samsung, hynix)) == fingerprint_market_data((samsung, hynix))
     assert fingerprint_market_data((samsung, hynix)) != fingerprint_market_data((hynix, samsung))
+
+
+def test_existing_allocation_serialization_and_fingerprint_contract_is_exact() -> None:
+    trial = _trial()
+    serialized = serialize_allocation_trial(trial)
+
+    assert len(serialized) == 2_768
+    assert hashlib.sha256(serialized).hexdigest() == (
+        "bb7c95106f09c6896671ee96a5363cf9a2128b3c7457b087b9a703aece6f8be7"
+    )
+    assert trial.config_fingerprint == (
+        "3eaa24ca0b9ec112b522d64f44a6e9b7f9f2ad3910ecf22914842d413db8b70e"
+    )
+    assert trial.policy_fingerprint == (
+        "b8f25830519350088f1b9bf50cc728e82f7ea4980c4c89f5937d79cf3cc4d919"
+    )
+    assert trial.market_data_fingerprint == (
+        "f4dd5c4a5b60d2edb53a408c667fa727a50c69b57b35bdeeeb23128c19c32104"
+    )
 
 
 def test_explicit_trial_projection_keeps_decimal_values_as_strings() -> None:

@@ -8,13 +8,9 @@ import os
 import re
 import secrets
 from collections.abc import Sequence
-from contextlib import suppress
 from decimal import Decimal
 from pathlib import Path
 from typing import Protocol
-
-from filelock import FileLock
-from filelock import Timeout as FileLockTimeout
 
 from phalanx.domain import (
     AllocationBacktestConfig,
@@ -33,10 +29,16 @@ from phalanx.portfolio.errors import (
     AllocationTrialStorageError,
     InvalidAllocationResearchTrialError,
 )
+from phalanx.portfolio.private_json_storage import (
+    PrivateJsonAlreadyExistsError,
+    PrivateJsonDirectoryError,
+    PrivateJsonLockError,
+    PrivateJsonLockTimeoutError,
+    PrivateJsonStorageError,
+    store_private_json_bytes,
+)
 
 _SCHEMA_VERSION = "1"
-_PRIVATE_FILE_MODE = 0o600
-_PRIVATE_DIRECTORY_MODE = 0o700
 _LOCK_TIMEOUT_SECONDS = 10.0
 _SAFE_FAILURE_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _SAFE_FAILURE_CODES = frozenset(
@@ -233,84 +235,38 @@ class JsonAllocationTrialRegistry:
         """Atomically save one private JSON trial without overwriting a target."""
 
         payload = serialize_allocation_trial(trial)
-        try:
-            self.output_dir.mkdir(
-                mode=_PRIVATE_DIRECTORY_MODE,
-                parents=True,
-                exist_ok=True,
-            )
-        except OSError:
-            raise AllocationTrialStorageError(
-                "자산배분 trial 출력 디렉터리를 만들 수 없습니다."
-            ) from None
-
         output_path = self.output_dir / f"allocation_research_trial_{trial.trial_id}.json"
-        lock_path = self.output_dir / f".{output_path.name}.lock"
-        lock = FileLock(
-            lock_path,
-            timeout=self.lock_timeout,
-            mode=_PRIVATE_FILE_MODE,
-        )
         try:
-            with lock:
-                os.chmod(lock_path, _PRIVATE_FILE_MODE, follow_symlinks=False)
-                return self._save_locked(output_path, payload)
-        except FileLockTimeout:
+            return store_private_json_bytes(
+                output_path,
+                payload,
+                lock_timeout=self.lock_timeout,
+                path_exists=_path_exists,
+                replace=os.replace,
+                token_hex=secrets.token_hex,
+                write_all=_write_all,
+                fsync_directory=_fsync_directory,
+            )
+        except PrivateJsonAlreadyExistsError:
+            raise AllocationTrialAlreadyExistsError(
+                f"기존 자산배분 trial을 덮어쓰지 않습니다: {output_path}"
+            ) from None
+        except PrivateJsonLockTimeoutError:
             raise AllocationTrialLockTimeoutError(
                 "자산배분 trial 출력 파일 잠금 대기시간이 초과되었습니다."
             ) from None
-        except AllocationTrialStorageError:
-            raise
-        except OSError:
+        except PrivateJsonDirectoryError:
+            raise AllocationTrialStorageError(
+                "자산배분 trial 출력 디렉터리를 만들 수 없습니다."
+            ) from None
+        except PrivateJsonLockError:
             raise AllocationTrialStorageError(
                 "자산배분 trial 출력 파일 잠금을 안전하게 사용할 수 없습니다."
             ) from None
-
-    def _save_locked(self, output_path: Path, payload: bytes) -> Path:
-        if _path_exists(output_path):
-            raise AllocationTrialAlreadyExistsError(
-                f"기존 자산배분 trial을 덮어쓰지 않습니다: {output_path}"
-            )
-
-        temporary_path = self.output_dir / (f".{output_path.name}.{secrets.token_hex(8)}.tmp")
-        descriptor: int | None = None
-        temporary_exists = False
-        try:
-            descriptor = os.open(
-                temporary_path,
-                os.O_WRONLY
-                | os.O_CREAT
-                | os.O_EXCL
-                | getattr(os, "O_CLOEXEC", 0)
-                | getattr(os, "O_NOFOLLOW", 0),
-                _PRIVATE_FILE_MODE,
-            )
-            temporary_exists = True
-            os.fchmod(descriptor, _PRIVATE_FILE_MODE)
-            _write_all(descriptor, payload)
-            os.close(descriptor)
-            descriptor = None
-
-            if _path_exists(output_path):
-                raise AllocationTrialAlreadyExistsError(
-                    f"기존 자산배분 trial을 덮어쓰지 않습니다: {output_path}"
-                )
-            os.replace(temporary_path, output_path)
-            temporary_exists = False
-            _fsync_directory(self.output_dir)
-            return output_path
-        except AllocationTrialStorageError:
-            raise
-        except OSError:
+        except PrivateJsonStorageError:
             raise AllocationTrialStorageError(
                 f"자산배분 trial을 원자적으로 저장하지 못했습니다: {output_path}"
             ) from None
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
-            if temporary_exists:
-                with suppress(FileNotFoundError):
-                    temporary_path.unlink()
 
 
 def _config_payload(config: AllocationBacktestConfig) -> dict[str, object]:

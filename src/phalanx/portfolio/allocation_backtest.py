@@ -4,20 +4,18 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import ROUND_HALF_EVEN, Context, Decimal, localcontext
-from itertools import pairwise
 
 from phalanx.domain import (
     AlignedPricePanel,
     AllocationBacktestConfig,
     AllocationBacktestResult,
-    AllocationPolicyInput,
     AllocationRebalanceRecord,
     AllocationTarget,
 )
+from phalanx.portfolio._allocation_schedule import build_price_panel_signal_windows
 from phalanx.portfolio.allocation_policies import AllocationPolicy
 from phalanx.portfolio.errors import (
     AllocationSelfFinancingError,
-    InsufficientAllocationObservationsError,
     InvalidAllocationTargetError,
 )
 
@@ -38,17 +36,13 @@ def run_allocation_backtest(
 
     if not isinstance(initial_nav, Decimal) or not initial_nav.is_finite() or initial_nav <= 0:
         raise AllocationSelfFinancingError("초기 NAV는 양의 유한한 Decimal이어야 합니다.")
-    required_prices = config.minimum_training_returns + 2
-    if len(panel.dates) < required_prices:
-        raise InsufficientAllocationObservationsError(len(panel.dates), required_prices)
 
     calculation_context = Context(
         prec=_ALLOCATION_DECIMAL_PRECISION,
         rounding=ROUND_HALF_EVEN,
     )
     with localcontext(calculation_context) as context:
-        close_returns = _close_returns(panel.close_prices)
-        scheduled_targets = _scheduled_targets(panel, close_returns, policy, config)
+        scheduled_targets = _scheduled_targets(panel, policy, config)
         if not scheduled_targets:
             raise AllocationSelfFinancingError(
                 "정책이 실행 가능한 리밸런싱 목표를 생성하지 않았습니다."
@@ -64,41 +58,21 @@ def run_allocation_backtest(
     return result
 
 
-def _close_returns(
-    close_prices: tuple[tuple[Decimal, ...], ...],
-) -> tuple[tuple[Decimal, ...], ...]:
-    return tuple(
-        tuple(current / previous - _ONE for previous, current in zip(old, new, strict=True))
-        for old, new in pairwise(close_prices)
-    )
-
-
 def _scheduled_targets(
     panel: AlignedPricePanel,
-    close_returns: tuple[tuple[Decimal, ...], ...],
     policy: AllocationPolicy,
     config: AllocationBacktestConfig,
 ) -> dict[int, AllocationTarget]:
     targets: dict[int, AllocationTarget] = {}
-    signal_indices = range(
-        config.minimum_training_returns,
-        len(panel.dates) - 1,
-        config.rebalance_interval,
-    )
-    for signal_number, signal_index in enumerate(signal_indices):
-        if not policy.should_rebalance(signal_number):
+    for signal_window in build_price_panel_signal_windows(panel, config):
+        policy_input = signal_window.policy_input
+        if not policy.should_rebalance(policy_input.signal_number):
             continue
-        window_start = max(0, signal_index - config.maximum_training_returns)
-        policy_input = AllocationPolicyInput(
-            signal_date=panel.dates[signal_index],
-            signal_number=signal_number,
-            stock_codes=panel.stock_codes,
-            return_dates=panel.dates[window_start + 1 : signal_index + 1],
-            return_values=close_returns[window_start:signal_index],
-        )
+        signal_index = signal_window.as_of_index + 1
         target = policy.build_target(policy_input, config.target_equity_weight)
         _validate_policy_target(target, panel, policy, config, signal_index)
-        targets[signal_index + 1] = target
+        execution_index = signal_window.as_of_index + 2
+        targets[execution_index] = target
     return targets
 
 
