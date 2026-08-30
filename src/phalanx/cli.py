@@ -16,7 +16,7 @@ from rich.table import Table
 
 from phalanx.application import AccountSnapshotResult, run_production_snapshot
 from phalanx.config import ConfigError
-from phalanx.domain import AccountSnapshot, AccountSummary, DailyBar
+from phalanx.domain import AccountSnapshot, AccountSummary, AlignedReturnMatrix, DailyBar
 from phalanx.kis.errors import (
     KisAuthError,
     KisBalanceAuthenticationError,
@@ -34,6 +34,8 @@ from phalanx.market_data.application import (
 from phalanx.market_data.errors import InvalidMarketDataRangeError, MarketDataError
 from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
+from phalanx.portfolio.application import run_production_aligned_returns
+from phalanx.portfolio.errors import PortfolioAnalysisError
 from phalanx.snapshots import SnapshotStorageError
 from phalanx.universe.errors import UniverseError
 from phalanx.universe.repository import JsonUniverseRepository
@@ -53,6 +55,7 @@ class ExitCode(IntEnum):
     SNAPSHOT_STORAGE = 40
     UNIVERSE = 50
     MARKET_DATA = 60
+    PORTFOLIO_ANALYSIS = 65
     UNEXPECTED = 70
     INTERRUPTED = 130
 
@@ -82,9 +85,16 @@ market_data_app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
+portfolio_app = typer.Typer(
+    add_completion=False,
+    help="공통 거래일 기반 READ ONLY 포트폴리오 분석",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
 app.add_typer(account_app, name="account")
 app.add_typer(universe_app, name="universe")
 app.add_typer(market_data_app, name="market-data")
+app.add_typer(portfolio_app, name="portfolio")
 
 
 def _console(*, stderr: bool = False) -> Console:
@@ -309,6 +319,38 @@ def render_universe_market_data(
     console.print(table)
 
 
+def render_portfolio_returns_start(
+    start: str,
+    end: str,
+    console: Console,
+) -> None:
+    """Render the analysis request before credentials or network work begins."""
+
+    console.print("KIS 국내주식 수익률 행렬 조회 시작 · READ ONLY", style="bold green")
+    console.print("조회 대상: 활성 유니버스")
+    console.print(f"시작일: {start}")
+    console.print(f"종료일: {end}")
+
+
+def render_aligned_return_matrix(
+    matrix: AlignedReturnMatrix,
+    console: Console,
+) -> None:
+    """Render aligned-return metadata without converting its Decimal values."""
+
+    overview = Table(title="공통 거래일 일별 단순수익률 · READ ONLY")
+    overview.add_column("항목", style="bold")
+    overview.add_column("값")
+    overview.add_row("종목 수", f"{len(matrix.stock_codes)}개")
+    overview.add_row("공통 종가 관측치 수", f"{len(matrix.dates) + 1}개")
+    overview.add_row("수익률 관측치 수", f"{len(matrix.dates)}개")
+    overview.add_row("최초 수익률 기준일", matrix.dates[0].isoformat())
+    overview.add_row("최종 수익률 기준일", matrix.dates[-1].isoformat())
+    overview.add_row("종목코드 순서", ", ".join(matrix.stock_codes))
+    overview.add_row("결측치 보정", "없음 (forward fill·보간하지 않음)")
+    console.print(overview)
+
+
 def _universe_error(error: UniverseError) -> None:
     _console(stderr=True).print(f"유니버스 오류: {error}")
     raise typer.Exit(ExitCode.UNIVERSE)
@@ -386,6 +428,45 @@ def run_cli_market_data[MarketDataResult](
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_portfolio_returns(
+    runner: Callable[[], AlignedReturnMatrix],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run aligned-return analysis with stable, secret-safe failures."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        matrix = runner()
+        render_aligned_return_matrix(matrix, output)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except PortfolioAnalysisError as error:
+        errors.print(f"수익률 분석 오류: {error}")
+        return int(ExitCode.PORTFOLIO_ANALYSIS)
+    except (
+        MarketDataError,
+        KisMarketDataClientError,
+        KisMarketDataParsingError,
+        UniverseError,
+    ) as error:
+        errors.print(f"시세 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 수익률 행렬 작업을 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 수익률 행렬 작업을 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def _exit_after_market_data[MarketDataResult](
     runner: Callable[[], MarketDataResult],
     renderer: Callable[[MarketDataResult, Console], None],
@@ -393,6 +474,16 @@ def _exit_after_market_data[MarketDataResult](
     console: Console | None = None,
 ) -> None:
     exit_code = run_cli_market_data(runner, renderer, console=console)
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
+def _exit_after_portfolio_returns(
+    runner: Callable[[], AlignedReturnMatrix],
+    *,
+    console: Console | None = None,
+) -> None:
+    exit_code = run_cli_portfolio_returns(runner, console=console)
     if exit_code != ExitCode.SUCCESS:
         raise typer.Exit(exit_code)
 
@@ -539,6 +630,27 @@ def market_data_universe(
     )
 
 
+@portfolio_app.command("returns")
+def portfolio_returns(
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+) -> None:
+    """활성 유니버스의 공통 거래일 일별 단순수익률을 계산합니다."""
+
+    output = _console()
+    render_portfolio_returns_start(start, end, output)
+    _exit_after_portfolio_returns(
+        lambda: run_production_aligned_returns(
+            *_parse_cli_date_range(start, end),
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        console=output,
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -552,13 +664,17 @@ __all__ = [
     "main",
     "market_data_daily",
     "market_data_universe",
+    "portfolio_returns",
+    "render_aligned_return_matrix",
     "render_daily_market_data",
     "render_market_data_start",
+    "render_portfolio_returns_start",
     "render_rate_limit_notification",
     "render_snapshot_summary",
     "render_universe",
     "render_universe_market_data",
     "run_cli_market_data",
+    "run_cli_portfolio_returns",
     "run_cli_snapshot",
     "universe_add",
     "universe_disable",
