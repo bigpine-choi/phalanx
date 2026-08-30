@@ -1,9 +1,10 @@
-"""Korean, secret-safe CLI for the read-only account snapshot workflow."""
+"""Korean, secret-safe CLI for read-only account and market-data workflows."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import IntEnum
 from typing import Annotated
@@ -15,23 +16,35 @@ from rich.table import Table
 
 from phalanx.application import AccountSnapshotResult, run_production_snapshot
 from phalanx.config import ConfigError
-from phalanx.domain import AccountSnapshot, AccountSummary
+from phalanx.domain import AccountSnapshot, AccountSummary, DailyBar
 from phalanx.kis.errors import (
     KisAuthError,
     KisBalanceAuthenticationError,
     KisBalanceClientError,
     KisBalanceParsingError,
+    KisMarketDataAuthenticationError,
+    KisMarketDataClientError,
+    KisMarketDataParsingError,
 )
+from phalanx.kis.market_data_client import KisRateLimitNotification
+from phalanx.market_data.application import (
+    run_production_daily_market_data,
+    run_production_universe_market_data,
+)
+from phalanx.market_data.errors import InvalidMarketDataRangeError, MarketDataError
+from phalanx.market_data.service import StockDailyBars
+from phalanx.market_data.validation import validate_daily_date_range
 from phalanx.snapshots import SnapshotStorageError
 from phalanx.universe.errors import UniverseError
 from phalanx.universe.repository import JsonUniverseRepository
 from phalanx.universe.service import UniverseService
 
 KOREA_TIMEZONE = ZoneInfo("Asia/Seoul")
+_CLI_DATE_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
 class ExitCode(IntEnum):
-    """Stable process outcomes for the snapshot command."""
+    """Stable process outcomes for all CLI workflows."""
 
     SUCCESS = 0
     CONFIGURATION = 10
@@ -39,13 +52,14 @@ class ExitCode(IntEnum):
     BALANCE_QUERY = 30
     SNAPSHOT_STORAGE = 40
     UNIVERSE = 50
+    MARKET_DATA = 60
     UNEXPECTED = 70
     INTERRUPTED = 130
 
 
 app = typer.Typer(
     add_completion=False,
-    help="한국투자증권 read-only 계좌 스냅샷과 로컬 투자 후보 관리",
+    help="한국투자증권 read-only 계좌·시세 조회와 로컬 투자 후보 관리",
     invoke_without_command=True,
     no_args_is_help=False,
     pretty_exceptions_enable=False,
@@ -62,8 +76,15 @@ universe_app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
+market_data_app = typer.Typer(
+    add_completion=False,
+    help="KIS 국내주식 READ ONLY 일별 수정주가 조회",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
 app.add_typer(account_app, name="account")
 app.add_typer(universe_app, name="universe")
+app.add_typer(market_data_app, name="market-data")
 
 
 def _console(*, stderr: bool = False) -> Console:
@@ -80,6 +101,22 @@ def _format_money(value: Decimal) -> str:
 
 def _format_korean_time(value: datetime) -> str:
     return value.astimezone(KOREA_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S KST")
+
+
+def _parse_cli_date_range(start: str, end: str) -> tuple[date, date]:
+    parsed: list[date] = []
+    for option_name, value in (("--start", start), ("--end", end)):
+        if _CLI_DATE_PATTERN.fullmatch(value) is None:
+            raise InvalidMarketDataRangeError(
+                f"{option_name}는 YYYY-MM-DD 형식의 실제 날짜여야 합니다."
+            )
+        try:
+            parsed.append(datetime.strptime(value, "%Y-%m-%d").date())
+        except ValueError:
+            raise InvalidMarketDataRangeError(
+                f"{option_name}는 YYYY-MM-DD 형식의 실제 날짜여야 합니다."
+            ) from None
+    return validate_daily_date_range(parsed[0], parsed[1])
 
 
 def _calculate_asset_reconciliation(summary: AccountSummary) -> tuple[Decimal, Decimal]:
@@ -195,6 +232,83 @@ def render_universe(service: UniverseService, console: Console) -> None:
     console.print(table)
 
 
+def render_daily_market_data(bars: tuple[DailyBar, ...], console: Console) -> None:
+    """Render a compact summary without persisting market data."""
+
+    console.print("KIS 국내주식 일별 시세 · READ ONLY", style="bold green")
+    overview = Table(show_header=False, box=None, pad_edge=False)
+    overview.add_column("항목", style="bold")
+    overview.add_column("값", justify="right")
+    overview.add_row("조회 건수", f"{len(bars)}건")
+    if bars:
+        overview.add_row("최초 거래일", bars[0].trade_date.isoformat())
+        overview.add_row("최종 거래일", bars[-1].trade_date.isoformat())
+        overview.add_row("최초 종가", _format_decimal(bars[0].close_price))
+        overview.add_row("최종 종가", _format_decimal(bars[-1].close_price))
+    else:
+        overview.add_row("거래일", "없음")
+        overview.add_row("종가", "없음")
+    console.print(overview)
+
+
+def render_market_data_start(
+    target: str,
+    start: str,
+    end: str,
+    console: Console,
+) -> None:
+    """Render request context before any credentials or network work begins."""
+
+    console.print("KIS 국내주식 일별 시세 조회 시작 · READ ONLY", style="bold green")
+    console.print(target)
+    console.print(f"시작일: {start}")
+    console.print(f"종료일: {end}")
+
+
+def render_rate_limit_notification(
+    notification: KisRateLimitNotification,
+    console: Console,
+) -> None:
+    """Render only the secret-free retry fields supplied by the KIS client."""
+
+    wait_seconds = format(notification.wait_seconds, "g")
+    console.print(
+        f"KIS 호출 제한: {notification.stock_code} · "
+        f"{wait_seconds}초 후 재시도 "
+        f"({notification.attempt_number}/{notification.max_attempts})",
+        style="bold yellow",
+    )
+
+
+def render_universe_market_data(
+    results: tuple[StockDailyBars, ...],
+    console: Console,
+) -> None:
+    """Render one row per active universe stock."""
+
+    if not results:
+        console.print("활성 투자 후보가 없습니다.")
+        return
+
+    table = Table(title="활성 유니버스 일별 시세 · READ ONLY")
+    table.add_column("종목코드")
+    table.add_column("종목명")
+    table.add_column("조회 건수", justify="right")
+    table.add_column("최초 거래일")
+    table.add_column("최종 거래일")
+    for result in results:
+        first_date = result.bars[0].trade_date.isoformat() if result.bars else "-"
+        last_date = result.bars[-1].trade_date.isoformat() if result.bars else "-"
+        table.add_row(
+            result.stock.stock_code,
+            result.stock.stock_name,
+            f"{len(result.bars)}건",
+            first_date,
+            last_date,
+        )
+    console.print(table)
+
+
 def _universe_error(error: UniverseError) -> None:
     _console(stderr=True).print(f"유니버스 오류: {error}")
     raise typer.Exit(ExitCode.UNIVERSE)
@@ -233,6 +347,54 @@ def run_cli_snapshot(
     except Exception:
         errors.print("예기치 않은 오류로 계좌 스냅샷 작업을 완료하지 못했습니다.")
         return int(ExitCode.UNEXPECTED)
+
+
+def run_cli_market_data[MarketDataResult](
+    runner: Callable[[], MarketDataResult],
+    renderer: Callable[[MarketDataResult, Console], None],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run one read-only market-data action with stable, secret-safe failures."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        renderer(result, output)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except (
+        MarketDataError,
+        KisMarketDataClientError,
+        KisMarketDataParsingError,
+        UniverseError,
+    ) as error:
+        errors.print(f"시세 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 일별 시세 조회를 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 일별 시세 조회를 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
+def _exit_after_market_data[MarketDataResult](
+    runner: Callable[[], MarketDataResult],
+    renderer: Callable[[MarketDataResult, Console], None],
+    *,
+    console: Console | None = None,
+) -> None:
+    exit_code = run_cli_market_data(runner, renderer, console=console)
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
 
 
 def _exit_after_snapshot() -> None:
@@ -331,6 +493,52 @@ def universe_remove(
         _universe_error(error)
 
 
+@market_data_app.command("daily")
+def market_data_daily(
+    stock_code: Annotated[str, typer.Argument(help="공백 없는 6자리 종목코드")],
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+) -> None:
+    """한 종목의 수정주가 기준 일별 OHLCV를 조회합니다."""
+
+    output = _console()
+    render_market_data_start(f"조회 종목: {stock_code}", start, end, output)
+    _exit_after_market_data(
+        lambda: run_production_daily_market_data(
+            stock_code,
+            *_parse_cli_date_range(start, end),
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        render_daily_market_data,
+        console=output,
+    )
+
+
+@market_data_app.command("universe")
+def market_data_universe(
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+) -> None:
+    """활성 투자 후보의 일별 OHLCV를 순차 조회합니다."""
+
+    output = _console()
+    render_market_data_start("조회 대상: 활성 유니버스", start, end, output)
+    _exit_after_market_data(
+        lambda: run_production_universe_market_data(
+            *_parse_cli_date_range(start, end),
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        render_universe_market_data,
+        console=output,
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -342,8 +550,15 @@ __all__ = [
     "account_snapshot",
     "app",
     "main",
+    "market_data_daily",
+    "market_data_universe",
+    "render_daily_market_data",
+    "render_market_data_start",
+    "render_rate_limit_notification",
     "render_snapshot_summary",
     "render_universe",
+    "render_universe_market_data",
+    "run_cli_market_data",
     "run_cli_snapshot",
     "universe_add",
     "universe_disable",
