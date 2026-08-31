@@ -16,7 +16,7 @@ _PRIVATE_DIRECTORY_MODE = 0o700
 _LOCK_TIMEOUT_SECONDS = 10.0
 
 PathExists = Callable[[Path], bool]
-Replace = Callable[[Path, Path], None]
+Link = Callable[[Path, Path], None]
 TokenHex = Callable[[int], str]
 WriteAll = Callable[[int, bytes], None]
 FsyncDirectory = Callable[[Path], None]
@@ -48,7 +48,7 @@ def store_private_json_bytes(
     *,
     lock_timeout: float = _LOCK_TIMEOUT_SECONDS,
     path_exists: PathExists | None = None,
-    replace: Replace | None = None,
+    link: Link | None = None,
     token_hex: TokenHex | None = None,
     write_all: WriteAll | None = None,
     fsync_directory: FsyncDirectory | None = None,
@@ -71,7 +71,7 @@ def store_private_json_bytes(
         raise PrivateJsonDirectoryError("private JSON output directory creation failed") from None
 
     selected_path_exists = _path_exists if path_exists is None else path_exists
-    selected_replace = os.replace if replace is None else replace
+    selected_link = os.link if link is None else link
     selected_token_hex = secrets.token_hex if token_hex is None else token_hex
     selected_write_all = _write_all if write_all is None else write_all
     selected_fsync_directory = _fsync_directory if fsync_directory is None else fsync_directory
@@ -85,7 +85,7 @@ def store_private_json_bytes(
                 target,
                 payload,
                 path_exists=selected_path_exists,
-                replace=selected_replace,
+                link=selected_link,
                 token_hex=selected_token_hex,
                 write_all=selected_write_all,
                 fsync_directory=selected_fsync_directory,
@@ -103,7 +103,7 @@ def _save_locked(
     payload: bytes,
     *,
     path_exists: PathExists,
-    replace: Replace,
+    link: Link,
     token_hex: TokenHex,
     write_all: WriteAll,
     fsync_directory: FsyncDirectory,
@@ -132,7 +132,11 @@ def _save_locked(
 
         if path_exists(output_path):
             raise PrivateJsonAlreadyExistsError("private JSON output already exists")
-        replace(temporary_path, output_path)
+        try:
+            link(temporary_path, output_path)
+        except FileExistsError:
+            raise PrivateJsonAlreadyExistsError("private JSON output already exists") from None
+        temporary_path.unlink()
         temporary_exists = False
         fsync_directory(output_path.parent)
         return output_path

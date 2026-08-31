@@ -45,18 +45,18 @@ def test_refuses_to_overwrite_existing_output_without_changing_it(tmp_path: Path
     assert output.read_bytes() == b"existing"
 
 
-def test_temporary_file_is_private_and_directory_fsync_runs_after_replace(
+def test_temporary_file_is_private_and_directory_fsync_runs_after_exclusive_publish(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "private" / "risk_trial.json"
     payload = b'{"exact":true}\n'
-    original_replace = os.replace
+    original_link = os.link
     observed_temporary_modes: list[int] = []
     fsynced_directories: list[Path] = []
 
-    def inspect_then_replace(source: Path, target: Path) -> None:
+    def inspect_then_link(source: Path, target: Path) -> None:
         observed_temporary_modes.append(_mode(source))
-        original_replace(source, target)
+        original_link(source, target)
 
     def record_directory_fsync(directory: Path) -> None:
         assert output.read_bytes() == payload
@@ -65,7 +65,7 @@ def test_temporary_file_is_private_and_directory_fsync_runs_after_replace(
     store_private_json_bytes(
         output,
         payload,
-        replace=inspect_then_replace,
+        link=inspect_then_link,
         fsync_directory=record_directory_fsync,
     )
 
@@ -91,21 +91,54 @@ def test_write_failure_cleans_temporary_file_and_leaves_no_output(
     assert list(output.parent.glob(f".{output.name}.*.tmp")) == []
 
 
-def test_replace_failure_preserves_racing_output_and_cleans_temporary_file(
+def test_exclusive_publish_preserves_racing_output_and_cleans_temporary_file(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "private" / "risk_trial.json"
+    racing_bytes = b"racing existing output"
+    original_link = os.link
 
-    def fail_replace(source: Path, target: Path) -> None:
+    def race_then_link(source: Path, target: Path) -> None:
         assert source.name.startswith(f".{output.name}.")
         assert target == output
-        output.write_bytes(b"racing existing output")
-        raise OSError("synthetic replace failure")
+        output.write_bytes(racing_bytes)
+        original_link(source, target)
+
+    with pytest.raises(PrivateJsonAlreadyExistsError, match="already exists"):
+        store_private_json_bytes(output, b'{"new":"payload"}\n', link=race_then_link)
+
+    assert output.read_bytes() == racing_bytes
+    assert list(output.parent.glob(f".{output.name}.*.tmp")) == []
+
+
+def test_hard_link_publish_failure_is_fail_closed_without_fallback(tmp_path: Path) -> None:
+    output = tmp_path / "private" / "risk_trial.json"
+
+    def fail_link(source: Path, target: Path) -> None:
+        assert source.name.startswith(f".{output.name}.")
+        assert target == output
+        raise OSError("hard links unsupported")
 
     with pytest.raises(PrivateJsonStorageError, match="atomic write"):
-        store_private_json_bytes(output, b'{"new":"payload"}\n', replace=fail_replace)
+        store_private_json_bytes(output, b'{"never":"stored"}\n', link=fail_link)
 
-    assert output.read_bytes() == b"racing existing output"
+    assert not output.exists()
+    assert list(output.parent.glob(f".{output.name}.*.tmp")) == []
+
+
+def test_directory_fsync_failure_leaves_only_complete_published_output(tmp_path: Path) -> None:
+    output = tmp_path / "private" / "risk_trial.json"
+    payload = b'{"complete":true}\n'
+
+    def fail_directory_fsync(directory: Path) -> None:
+        assert directory == output.parent
+        assert output.read_bytes() == payload
+        raise OSError("synthetic directory fsync failure")
+
+    with pytest.raises(PrivateJsonStorageError, match="atomic write"):
+        store_private_json_bytes(output, payload, fsync_directory=fail_directory_fsync)
+
+    assert output.read_bytes() == payload
     assert list(output.parent.glob(f".{output.name}.*.tmp")) == []
 
 

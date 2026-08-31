@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_HALF_EVEN, Context, Decimal, localcontext
+from decimal import ROUND_HALF_EVEN, Context, Decimal, DecimalException, localcontext
 
 from phalanx.domain import (
     AlignedPricePanel,
@@ -165,6 +165,110 @@ def run_allocation_backtest_with_targets(
         )
 
 
+def run_allocation_backtest_with_dynamic_targets(
+    panel: AlignedPricePanel,
+    policy_id: str,
+    scheduled_targets: tuple[ScheduledAllocationTarget, ...],
+    config: AllocationBacktestConfig,
+    *,
+    annual_cash_yield: Decimal,
+    initial_nav: Decimal = _ONE,
+) -> AllocationBacktestResult:
+    """Run varying equity targets with residual-cash yield and next-open execution.
+
+    Each target supplies its own ``target_equity_weight``. Cash starts accruing only
+    after the first execution date, once per subsequent common trading day, before
+    that day's open execution. The annual yield is converted to a daily compound
+    factor using ``config.annualization_trading_days``.
+    """
+
+    if not isinstance(initial_nav, Decimal) or not initial_nav.is_finite() or initial_nav <= 0:
+        raise AllocationSelfFinancingError("초기 NAV는 양의 유한한 Decimal이어야 합니다.")
+    if not isinstance(scheduled_targets, tuple) or not scheduled_targets:
+        raise AllocationSelfFinancingError(
+            "정책이 실행 가능한 리밸런싱 목표를 생성하지 않았습니다."
+        )
+    daily_cash_growth_factor = annual_cash_yield_to_daily_growth_factor(
+        annual_cash_yield,
+        config.annualization_trading_days,
+    )
+
+    target_map: dict[int, AllocationTarget] = {}
+    previous_index: int | None = None
+    for item in scheduled_targets:
+        if not isinstance(item, ScheduledAllocationTarget):
+            raise InvalidAllocationTargetError(
+                "사전계산 목표 일정은 ScheduledAllocationTarget만 포함해야 합니다."
+            )
+        index = item.execution_index
+        if type(index) is not int or not 0 <= index < len(panel.dates):
+            raise InvalidAllocationTargetError(
+                "사전계산 목표 체결 index가 가격 패널 범위 밖입니다."
+            )
+        if previous_index is not None and index <= previous_index:
+            raise InvalidAllocationTargetError(
+                "사전계산 목표 체결 index는 중복 없는 엄격한 오름차순이어야 합니다."
+            )
+        _validate_dynamic_scheduled_target(item.target, panel, policy_id, index)
+        target_map[index] = item.target
+        previous_index = index
+
+    calculation_context = Context(
+        prec=_ALLOCATION_DECIMAL_PRECISION,
+        rounding=ROUND_HALF_EVEN,
+    )
+    with localcontext(calculation_context) as context:
+        return _simulate(
+            panel,
+            policy_id,
+            target_map,
+            config,
+            initial_nav,
+            context,
+            daily_cash_growth_factor=daily_cash_growth_factor,
+        )
+
+
+def annual_cash_yield_to_daily_growth_factor(
+    annual_cash_yield: Decimal,
+    annualization_trading_days: int,
+) -> Decimal:
+    """Convert one annual Decimal cash yield to a fixed-context daily factor."""
+
+    if (
+        not isinstance(annual_cash_yield, Decimal)
+        or not annual_cash_yield.is_finite()
+        or annual_cash_yield <= -_ONE
+    ):
+        raise AllocationSelfFinancingError(
+            "연간 현금 수익률은 -1보다 큰 유한한 Decimal이어야 합니다."
+        )
+    if type(annualization_trading_days) is not int or annualization_trading_days <= 0:
+        raise AllocationSelfFinancingError("연환산 거래일은 양의 정수여야 합니다.")
+    if annual_cash_yield == _ZERO:
+        return _ONE
+
+    calculation_context = Context(
+        prec=_ALLOCATION_DECIMAL_PRECISION,
+        rounding=ROUND_HALF_EVEN,
+    )
+    with localcontext(calculation_context):
+        try:
+            factor = calculation_context.power(
+                _ONE + annual_cash_yield,
+                _ONE / Decimal(annualization_trading_days),
+            )
+        except DecimalException:
+            raise AllocationSelfFinancingError(
+                "연간 현금 수익률을 일별 복리 계수로 변환하지 못했습니다."
+            ) from None
+    if not factor.is_finite() or factor <= 0:
+        raise AllocationSelfFinancingError(
+            "연간 현금 수익률을 양의 유한한 일별 복리 계수로 변환하지 못했습니다."
+        )
+    return factor
+
+
 def _validate_policy_target(
     target: AllocationTarget,
     panel: AlignedPricePanel,
@@ -205,6 +309,25 @@ def _validate_scheduled_target(
         )
 
 
+def _validate_dynamic_scheduled_target(
+    target: AllocationTarget,
+    panel: AlignedPricePanel,
+    policy_id: str,
+    execution_index: int,
+) -> None:
+    signal_index = execution_index - 1
+    if signal_index < 0:
+        raise InvalidAllocationTargetError("정책 목표보다 앞선 체결 index를 사용할 수 없습니다.")
+    if target.signal_date != panel.dates[signal_index]:
+        raise InvalidAllocationTargetError("정책 목표 기준일이 실제 신호일과 일치하지 않습니다.")
+    if target.stock_codes != panel.stock_codes:
+        raise InvalidAllocationTargetError(
+            "정책 목표 종목 순서가 가격 패널 등록 순서와 일치하지 않습니다."
+        )
+    if target.policy_id != policy_id:
+        raise InvalidAllocationTargetError("정책 목표 식별자가 실행 정책과 일치하지 않습니다.")
+
+
 def _simulate(
     panel: AlignedPricePanel,
     policy_id: str,
@@ -212,6 +335,8 @@ def _simulate(
     config: AllocationBacktestConfig,
     initial_nav: Decimal,
     context: Context,
+    *,
+    daily_cash_growth_factor: Decimal | None = None,
 ) -> AllocationBacktestResult:
     first_execution_index = min(scheduled_targets)
     quantities = tuple(_ZERO for _ in panel.stock_codes)
@@ -223,6 +348,12 @@ def _simulate(
     records: list[AllocationRebalanceRecord] = []
 
     for price_index in range(first_execution_index, len(panel.dates)):
+        if (
+            daily_cash_growth_factor is not None
+            and daily_cash_growth_factor != _ONE
+            and price_index > first_execution_index
+        ):
+            cash = _accrue_daily_cash(cash, daily_cash_growth_factor)
         target = scheduled_targets.get(price_index)
         if target is not None:
             quantities, cash, record = _execute_target(
@@ -288,6 +419,20 @@ def _simulate(
         annualized_volatility=annualized_volatility,
         max_drawdown=max_drawdown,
     )
+
+
+def _accrue_daily_cash(cash: Decimal, daily_cash_growth_factor: Decimal) -> Decimal:
+    try:
+        accrued = cash * daily_cash_growth_factor
+    except DecimalException:
+        raise AllocationSelfFinancingError(
+            "일별 현금 수익을 유한한 현금 잔고로 복리 반영하지 못했습니다."
+        ) from None
+    if not accrued.is_finite() or accrued < 0:
+        raise AllocationSelfFinancingError(
+            "일별 현금 수익 반영 후 현금은 0 이상의 유한한 Decimal이어야 합니다."
+        )
+    return accrued
 
 
 def _execute_target(
@@ -469,7 +614,9 @@ def _metrics(
 
 __all__ = [
     "ScheduledAllocationTarget",
+    "annual_cash_yield_to_daily_growth_factor",
     "build_allocation_target_schedule",
     "run_allocation_backtest",
+    "run_allocation_backtest_with_dynamic_targets",
     "run_allocation_backtest_with_targets",
 ]

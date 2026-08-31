@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -19,6 +20,8 @@ from phalanx.domain import (
     HistoricalUniverseAnalysis,
     KoreanStock,
     RiskModelResearchTrial,
+    VolatilityOverlayConfig,
+    VolatilityOverlayResearchTrial,
 )
 from phalanx.kis.market_data_client import KisRateLimitCallback, KisRequestPacer
 from phalanx.market_data.application import run_production_universe_market_data
@@ -45,6 +48,12 @@ from phalanx.portfolio.risk_model_research import (
     create_risk_model_research_trial,
 )
 from phalanx.portfolio.risk_model_trial_registry import JsonRiskModelTrialRegistry
+from phalanx.portfolio.volatility_overlay_research import (
+    conduct_volatility_overlay_research,
+)
+from phalanx.portfolio.volatility_overlay_trial_registry import (
+    JsonVolatilityOverlayTrialRegistry,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +86,14 @@ class ConstrainedErcResearchApplicationResult:
     """One persisted seven-policy constrained-ERC research trial."""
 
     trial: ConstrainedErcResearchTrial
+    saved_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class VolatilityOverlayResearchApplicationResult:
+    """One persisted four-scenario volatility-overlay research trial."""
+
+    trial: VolatilityOverlayResearchTrial
     saved_path: Path
 
 
@@ -289,6 +306,61 @@ def run_production_constrained_erc_research(
     return ConstrainedErcResearchApplicationResult(trial=trial, saved_path=saved_path)
 
 
+def run_production_volatility_overlay_research(
+    start_date: date,
+    end_date: date,
+    target_annual_volatility: Decimal,
+    annual_cash_yield: Decimal = Decimal("0"),
+    *,
+    output_dir: Path,
+    allocation_config: AllocationBacktestConfig | None = None,
+    risk_model_config: DynamicRiskModelConfig | None = None,
+    solver_config: ConstrainedErcSolverConfig | None = None,
+    estimator: ConstrainedErcRiskEstimator | None = None,
+    solver: ConstrainedErcScenarioSolver | None = None,
+    credentials_path: Path | None = None,
+    token_cache_path: Path | None = None,
+    universe_path: Path | None = None,
+    transport: httpx.BaseTransport | None = None,
+    rate_limit_callback: KisRateLimitCallback | None = None,
+    request_pacer: KisRequestPacer | None = None,
+    trial_id_factory: Callable[[], str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> VolatilityOverlayResearchApplicationResult:
+    """Fetch once, apply four independent risk overlays, and persist one trial."""
+
+    overlay_config = VolatilityOverlayConfig(
+        target_annual_volatility=target_annual_volatility,
+        annual_cash_yield=annual_cash_yield,
+    )
+    histories = run_production_universe_market_data(
+        start_date,
+        end_date,
+        credentials_path=credentials_path,
+        token_cache_path=token_cache_path,
+        universe_path=universe_path,
+        transport=transport,
+        rate_limit_callback=rate_limit_callback,
+        request_pacer=request_pacer,
+    )
+    trial = conduct_volatility_overlay_research(
+        histories,
+        start_date,
+        end_date,
+        target_annual_volatility=overlay_config.target_annual_volatility,
+        annual_cash_yield=overlay_config.annual_cash_yield,
+        allocation_config=allocation_config,
+        risk_model_config=risk_model_config,
+        solver_config=solver_config,
+        estimator=estimator,
+        solver=solver,
+        trial_id_factory=trial_id_factory,
+        clock=clock,
+    )
+    saved_path = JsonVolatilityOverlayTrialRegistry(output_dir).save(trial)
+    return VolatilityOverlayResearchApplicationResult(trial=trial, saved_path=saved_path)
+
+
 def _stocks_in_matrix_order(
     histories: tuple[StockDailyBars, ...],
     matrix: AlignedReturnMatrix,
@@ -306,9 +378,11 @@ __all__ = [
     "ConstrainedErcResearchApplicationResult",
     "HistoricalReportResult",
     "RiskModelResearchApplicationResult",
+    "VolatilityOverlayResearchApplicationResult",
     "run_production_aligned_returns",
     "run_production_allocation_research",
     "run_production_constrained_erc_research",
     "run_production_historical_report",
     "run_production_risk_model_research",
+    "run_production_volatility_overlay_research",
 ]
