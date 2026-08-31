@@ -242,7 +242,7 @@ class JsonAllocationTrialRegistry:
                 payload,
                 lock_timeout=self.lock_timeout,
                 path_exists=_path_exists,
-                replace=os.replace,
+                link=os.link,
                 token_hex=secrets.token_hex,
                 write_all=_write_all,
                 fsync_directory=_fsync_directory,

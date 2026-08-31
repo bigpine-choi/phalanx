@@ -420,6 +420,30 @@ class ConstrainedErcTrialSerializationError(ConstrainedErcTrialStorageError):
     """Raised when a constrained-ERC trial cannot be safely serialized."""
 
 
+class VolatilityOverlayResearchError(PortfolioAnalysisError):
+    """Base class for expected volatility-overlay research failures."""
+
+
+class InvalidVolatilityOverlayDomainError(VolatilityOverlayResearchError):
+    """Raised when a volatility-overlay value violates its immutable contract."""
+
+
+class VolatilityOverlayTrialStorageError(Exception):
+    """Base class for volatility-overlay trial serialization and storage failures."""
+
+
+class VolatilityOverlayTrialAlreadyExistsError(VolatilityOverlayTrialStorageError):
+    """Raised rather than overwriting an existing volatility-overlay trial."""
+
+
+class VolatilityOverlayTrialLockTimeoutError(VolatilityOverlayTrialStorageError):
+    """Raised when a volatility-overlay output lock cannot be acquired."""
+
+
+class VolatilityOverlayTrialSerializationError(VolatilityOverlayTrialStorageError):
+    """Raised when a volatility-overlay trial cannot be safely serialized."""
+
+
 __all__ = [
     "AllocationResearchError",
     "AllocationSelfFinancingError",
@@ -479,6 +503,7 @@ __all__ = [
     "InvalidMinimumObservationsError",
     "InvalidPerformanceMetricsError",
     "InvalidPerformanceReturnError",
+    "InvalidVolatilityOverlayDomainError",
     "MateriallyIndefiniteCovarianceError",
     "PortfolioAnalysisError",
     "ReturnStockCodeMismatchError",
@@ -493,4 +518,9 @@ __all__ = [
     "RiskModelTrialStorageError",
     "UnsortedAllocationBarsError",
     "UnsortedDailyBarsError",
+    "VolatilityOverlayResearchError",
+    "VolatilityOverlayTrialAlreadyExistsError",
+    "VolatilityOverlayTrialLockTimeoutError",
+    "VolatilityOverlayTrialSerializationError",
+    "VolatilityOverlayTrialStorageError",
 ]

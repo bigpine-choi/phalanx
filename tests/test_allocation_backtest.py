@@ -21,13 +21,20 @@ from phalanx.domain import (
     AllocationPolicyInput,
     AllocationTarget,
 )
-from phalanx.portfolio.allocation_backtest import run_allocation_backtest
+from phalanx.portfolio.allocation_backtest import (
+    ScheduledAllocationTarget,
+    annual_cash_yield_to_daily_growth_factor,
+    run_allocation_backtest,
+    run_allocation_backtest_with_dynamic_targets,
+    run_allocation_backtest_with_targets,
+)
 from phalanx.portfolio.allocation_policies import (
     EqualWeightBuyAndHold,
     WeeklyEqualWeight,
     WeeklyInverseVolatility,
 )
 from phalanx.portfolio.errors import (
+    AllocationSelfFinancingError,
     AllocationZeroVolatilityError,
     InsufficientAllocationObservationsError,
 )
@@ -62,6 +69,31 @@ def _trending_panel(count: int) -> AlignedPricePanel:
             second *= Decimal("0.997") if index % 2 else Decimal("1.008")
         rows.append((first, second))
     return _panel(tuple(rows))
+
+
+def _scheduled_target(
+    panel: AlignedPricePanel,
+    execution_index: int,
+    target_equity_weight: Decimal,
+    *,
+    policy_id: str = "dynamic_equity_target",
+) -> ScheduledAllocationTarget:
+    equal_weight = target_equity_weight / Decimal(len(panel.stock_codes))
+    leading_weights = tuple(equal_weight for _ in panel.stock_codes[:-1])
+    target_weights = (
+        *leading_weights,
+        target_equity_weight - sum(leading_weights, Decimal(0)),
+    )
+    return ScheduledAllocationTarget(
+        execution_index=execution_index,
+        target=AllocationTarget(
+            signal_date=panel.dates[execution_index - 1],
+            stock_codes=panel.stock_codes,
+            target_weights=target_weights,
+            policy_id=policy_id,
+            target_equity_weight=target_equity_weight,
+        ),
+    )
 
 
 class SpyEqualWeightPolicy:
@@ -289,6 +321,227 @@ def test_asymmetric_costs_reconcile_self_financing_and_leave_nonnegative_cash() 
     assert second.cash_after >= 0
     assert all(value >= 0 for value in result.realized_cash_weights)
     assert result.cumulative_transaction_cost == expected_cumulative_cost
+
+
+def test_dynamic_equity_targets_preserve_asymmetric_self_financing_costs() -> None:
+    panel = _panel(
+        tuple((Decimal("100"),) for _ in range(5)),
+        stock_codes=("005930",),
+    )
+    config = AllocationBacktestConfig(
+        minimum_training_returns=2,
+        maximum_training_returns=2,
+        rebalance_interval=2,
+        target_equity_weight=Decimal("0.995"),
+        buy_cost_rate=Decimal("0.01"),
+        sell_cost_rate=Decimal("0.02"),
+    )
+    schedule = (
+        _scheduled_target(panel, 1, Decimal("0.8")),
+        _scheduled_target(panel, 3, Decimal("0.3")),
+    )
+
+    result = run_allocation_backtest_with_dynamic_targets(
+        panel,
+        "dynamic_equity_target",
+        schedule,
+        config,
+        annual_cash_yield=Decimal(0),
+    )
+
+    first, second = result.rebalances
+    with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
+        first_bought = first.buy_gross_turnover * first.pre_trade_nav
+        second_sold = second.sell_gross_turnover * second.pre_trade_nav
+        expected_first_cost = first_bought * config.buy_cost_rate
+        expected_second_cost = second_sold * config.sell_cost_rate
+        expected_cumulative_cost = first.transaction_cost + second.transaction_cost
+        expected_post_trade_navs = tuple(
+            record.pre_trade_nav - record.transaction_cost for record in result.rebalances
+        )
+        expected_cash_after = (
+            Decimal("0.2") * first.post_trade_nav,
+            Decimal("0.7") * second.post_trade_nav,
+        )
+
+    assert tuple(record.target.target_equity_weight for record in result.rebalances) == (
+        Decimal("0.8"),
+        Decimal("0.3"),
+    )
+    assert first_bought > 0
+    assert second_sold > 0
+    assert first.transaction_cost == expected_first_cost
+    assert second.transaction_cost == expected_second_cost
+    assert tuple(record.post_trade_nav for record in result.rebalances) == expected_post_trade_navs
+    assert tuple(record.cash_after for record in result.rebalances) == expected_cash_after
+    assert result.cumulative_transaction_cost == expected_cumulative_cost
+
+
+def test_cash_yield_accrues_after_first_execution_before_each_later_open() -> None:
+    panel = _panel(
+        tuple((Decimal("100"),) for _ in range(4)),
+        stock_codes=("005930",),
+    )
+    config = AllocationBacktestConfig(
+        minimum_training_returns=1,
+        maximum_training_returns=1,
+        rebalance_interval=2,
+        target_equity_weight=Decimal("0.9"),
+        buy_cost_rate=Decimal(0),
+        sell_cost_rate=Decimal(0),
+        annualization_trading_days=2,
+    )
+    schedule = (
+        _scheduled_target(panel, 1, Decimal("0.5")),
+        _scheduled_target(panel, 3, Decimal("0.5")),
+    )
+
+    result = run_allocation_backtest_with_dynamic_targets(
+        panel,
+        "dynamic_equity_target",
+        schedule,
+        config,
+        annual_cash_yield=Decimal("0.21"),
+    )
+
+    assert result.rebalances[0].pre_trade_nav == Decimal(1)
+    assert result.rebalances[0].cash_after == Decimal("0.5")
+    assert result.net_asset_values == (
+        Decimal("1.0"),
+        Decimal("1.050"),
+        Decimal("1.10500"),
+    )
+    assert result.rebalances[1].pre_trade_nav == Decimal("1.10500")
+    assert result.rebalances[1].cash_after == Decimal("0.552500")
+
+
+def test_three_percent_annual_cash_yield_compounds_over_252_common_days() -> None:
+    context = Context(prec=50, rounding=ROUND_HALF_EVEN)
+    with localcontext(context):
+        daily_factor = annual_cash_yield_to_daily_growth_factor(Decimal("0.03"), 252)
+        compounded = context.power(daily_factor, Decimal(252))
+
+    assert isinstance(daily_factor, Decimal)
+    assert abs(compounded - Decimal("1.03")) < Decimal("1e-46")
+
+
+def test_zero_annual_cash_yield_has_exact_unit_daily_growth() -> None:
+    assert annual_cash_yield_to_daily_growth_factor(Decimal(0), 252) == Decimal(1)
+
+
+@pytest.mark.parametrize("annualization_trading_days", [0, -1, 252.0, True])
+def test_annual_cash_yield_requires_positive_integer_trading_days(
+    annualization_trading_days: object,
+) -> None:
+    with pytest.raises(AllocationSelfFinancingError, match=r"연환산 거래일.*양의 정수"):
+        annual_cash_yield_to_daily_growth_factor(
+            Decimal("0.03"),
+            annualization_trading_days,  # type: ignore[arg-type]
+        )
+
+
+def test_dynamic_target_uses_next_open_and_does_not_accrue_unknown_pre_execution_cash() -> None:
+    closes = tuple((Decimal("100"),) for _ in range(4))
+    opens = (
+        (Decimal("100"),),
+        (Decimal("100"),),
+        (Decimal("100"),),
+        (Decimal("1000"),),
+    )
+    panel = _panel(closes, open_prices=opens, stock_codes=("005930",))
+    config = AllocationBacktestConfig(
+        minimum_training_returns=2,
+        maximum_training_returns=2,
+        rebalance_interval=5,
+        buy_cost_rate=Decimal(0),
+        sell_cost_rate=Decimal(0),
+    )
+    schedule = (_scheduled_target(panel, 3, Decimal("0.5")),)
+
+    result = run_allocation_backtest_with_dynamic_targets(
+        panel,
+        "dynamic_equity_target",
+        schedule,
+        config,
+        annual_cash_yield=Decimal("0.03"),
+    )
+
+    assert result.rebalances[0].target.signal_date == panel.dates[2]
+    assert result.rebalances[0].execution_date == panel.dates[3]
+    assert result.rebalances[0].pre_trade_nav == Decimal(1)
+    assert result.net_asset_values == (Decimal("0.55"),)
+
+
+def test_zero_cash_yield_is_exactly_the_existing_static_target_result() -> None:
+    panel = _panel(
+        (
+            (Decimal("100"), Decimal("100")),
+            (Decimal("101"), Decimal("99")),
+            (Decimal("102"), Decimal("98")),
+            (Decimal("100"), Decimal("100")),
+            (Decimal("200"), Decimal("50")),
+            (Decimal("200"), Decimal("50")),
+        )
+    )
+    config = AllocationBacktestConfig(
+        minimum_training_returns=2,
+        maximum_training_returns=3,
+        rebalance_interval=2,
+        target_equity_weight=Decimal("0.8"),
+        buy_cost_rate=Decimal("0.01"),
+        sell_cost_rate=Decimal("0.02"),
+    )
+    schedule = (
+        _scheduled_target(
+            panel,
+            3,
+            config.target_equity_weight,
+            policy_id="static_target",
+        ),
+        _scheduled_target(
+            panel,
+            5,
+            config.target_equity_weight,
+            policy_id="static_target",
+        ),
+    )
+
+    existing = run_allocation_backtest_with_targets(
+        panel,
+        "static_target",
+        schedule,
+        config,
+    )
+    additive = run_allocation_backtest_with_dynamic_targets(
+        panel,
+        "static_target",
+        schedule,
+        config,
+        annual_cash_yield=Decimal(0),
+    )
+
+    assert additive == existing
+
+
+@pytest.mark.parametrize(
+    "annual_cash_yield",
+    [Decimal("-1"), Decimal("-1.01"), Decimal("NaN"), Decimal("Infinity"), 0.03],
+)
+def test_dynamic_target_rejects_invalid_annual_cash_yield(annual_cash_yield: object) -> None:
+    panel = _panel(
+        tuple((Decimal("100"),) for _ in range(3)),
+        stock_codes=("005930",),
+    )
+    schedule = (_scheduled_target(panel, 1, Decimal("0.5")),)
+
+    with pytest.raises(AllocationSelfFinancingError, match=r"-1보다 큰.*Decimal"):
+        run_allocation_backtest_with_dynamic_targets(
+            panel,
+            "dynamic_equity_target",
+            schedule,
+            AllocationBacktestConfig(),
+            annual_cash_yield=annual_cash_yield,  # type: ignore[arg-type]
+        )
 
 
 def test_all_three_policies_share_data_first_execution_and_cost_assumptions() -> None:

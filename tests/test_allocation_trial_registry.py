@@ -279,41 +279,42 @@ def test_registry_refuses_to_overwrite_existing_trial(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8") == "existing trial"
 
 
-def test_temporary_file_is_0600_before_atomic_replace(
+def test_temporary_file_is_0600_before_exclusive_publish(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir = tmp_path / "trials"
-    original_replace = os.replace
+    original_link = os.link
     observed_modes: list[int] = []
 
-    def inspect_then_replace(source: Path, target: Path) -> None:
+    def inspect_then_link(source: Path, target: Path) -> None:
         observed_modes.append(_mode(source))
-        original_replace(source, target)
+        original_link(source, target)
 
-    monkeypatch.setattr(trial_registry.os, "replace", inspect_then_replace)
+    monkeypatch.setattr(trial_registry.os, "link", inspect_then_link)
 
     JsonAllocationTrialRegistry(output_dir).save(_trial())
 
     assert observed_modes == [0o600]
 
 
-def test_replace_failure_preserves_racing_file_and_cleans_temporary_file(
+def test_exclusive_publish_preserves_racing_file_and_cleans_temporary_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir = tmp_path / "trials"
     output = output_dir / "allocation_research_trial_trial-001.json"
+    original_link = os.link
 
-    def fail_replace(source: Path, target: Path) -> None:
+    def race_then_link(source: Path, target: Path) -> None:
         assert source.name.startswith(f".{output.name}.")
         assert target == output
         output.write_text("racing existing trial", encoding="utf-8")
-        raise OSError("synthetic replace failure")
+        original_link(source, target)
 
-    monkeypatch.setattr(trial_registry.os, "replace", fail_replace)
+    monkeypatch.setattr(trial_registry.os, "link", race_then_link)
 
-    with pytest.raises(AllocationTrialStorageError, match="원자적으로"):
+    with pytest.raises(AllocationTrialAlreadyExistsError, match="덮어쓰지"):
         JsonAllocationTrialRegistry(output_dir).save(_trial())
 
     assert output.read_text(encoding="utf-8") == "racing existing trial"

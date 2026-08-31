@@ -1,6 +1,6 @@
 # Phalanx
 
-Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투자증권 실전계좌의 예수금 총액과 국내주식 잔고를 읽어 불변 JSON 스냅샷으로 저장하고, 사람이 직접 관리하는 로컬 투자 후보 유니버스, KIS 국내주식 일별 시세 조회, 공통 거래일 수익률 행렬, 과거 유니버스 HTML 리포트, 재현 가능한 자산배분 연구 harness, 동적 위험모형과 Constrained ERC 연구 계층을 제공합니다.
+Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투자증권 실전계좌의 예수금 총액과 국내주식 잔고를 읽어 불변 JSON 스냅샷으로 저장하고, 사람이 직접 관리하는 로컬 투자 후보 유니버스, KIS 국내주식 일별 시세 조회, 공통 거래일 수익률 행렬, 과거 유니버스 HTML 리포트, 재현 가능한 자산배분 연구 harness, 동적 위험모형, Constrained ERC 및 별도 volatility-target/cash-residual 연구 계층을 제공합니다.
 
 ## 현재 마일스톤의 안전 경계
 
@@ -11,7 +11,7 @@ Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투
 - `orderable_cash`는 이번 마일스톤에서 제공되지 않아 `None`/`null`로 유지하고 터미널에는 `미제공`으로 표시합니다. 향후 매매계획 단계에서 매수가능조회 API의 `nrcvb_buy_amt`를 별도로 확인합니다.
 - API 키, 앱 시크릿, 계좌번호와 접근토큰은 Git에 포함하지 않습니다. `runtime/` 제외 규칙은 방어 목적으로 유지합니다.
 
-현재 브랜치는 외부 자격증명, OAuth 토큰 캐시, 국내주식 잔고 파싱·연속조회, 불변 스냅샷 저장, 로컬 투자 후보 관리, 수정주가 기준 일별 OHLCV 조회, 공통 거래일 단순수익률 계산, self-contained 과거 성과 리포트, 조건부 자산배분 연구 harness, 네 개의 독립 공분산 시나리오와 각 시나리오의 Constrained ERC 연구까지 구성합니다. 실제 자격증명과 실제 KIS API는 자동 테스트에서 사용하지 않습니다.
+현재 브랜치는 외부 자격증명, OAuth 토큰 캐시, 국내주식 잔고 파싱·연속조회, 불변 스냅샷 저장, 로컬 투자 후보 관리, 수정주가 기준 일별 OHLCV 조회, 공통 거래일 단순수익률 계산, self-contained 과거 성과 리포트, 조건부 자산배분 연구 harness, 네 개의 독립 공분산 시나리오, 각 시나리오의 Constrained ERC와 별도 deterministic volatility overlay 연구까지 구성합니다. 실제 자격증명과 실제 KIS API는 자동 테스트에서 사용하지 않습니다.
 
 ## 개발 환경
 
@@ -314,10 +314,55 @@ solver의 float64 수치해는 `0.000000000001` quantum의 `Decimal`로 내림�
 - 기대수익률이나 alpha 입력이 없고, 결과는 종목선정 alpha 또는 전체 Phalanx 전략의 OOS 성과를 증명하지 않습니다.
 - fractional shares와 고정 비용 가정을 사용하며 정수주, 실계좌 목표수량 또는 주문 초안이 아닙니다.
 - KOSPI benchmark가 없으므로 시장 대비 성과를 주장하지 않습니다.
-- 향후 volatility-target scalar와 cash residual overlay는 ERC risky sleeve 밖의 별도 계층 범위입니다.
+- volatility-target scalar와 cash residual은 아래의 별도 연구 계층에서만 적용하며 기존 ERC risky sleeve 해를 변경하지 않습니다.
 - KIS 연결은 실전계좌 **READ ONLY** 일별 시세 조회뿐이며 주문 endpoint, 주문 TR ID 또는 주문 전송을 추가하지 않습니다.
 
 수학적 formulation과 box-bound KKT 회귀값은 [Richard와 Roncalli의 원 논문](https://arxiv.org/abs/1902.05710)을 기준으로 검증합니다.
+
+## Volatility-target scalar + cash-residual overlay 연구
+
+이 연구는 기존 네 Constrained ERC 결과를 **합계 1인 위험자산 sleeve**로 그대로 두고, 각 covariance scenario에 별도 scalar를 독립적으로 적용합니다. 목표 연환산변동성은 production 상수가 아니며 매 실행마다 `--target-annual-volatility`로 반드시 명시해야 합니다. 허용 범위는 목표 연환산변동성 `(0, 1]`, 연 현금수익률 `[0, 1]`이고 cash yield 기본값은 정확히 `0`입니다. 두 입력은 trailing zero를 제거한 뒤 소수점 이하 최대 12자리까지 허용하며, `0.20`과 `0.2`처럼 경제적으로 같은 입력은 같은 canonical `Decimal`과 fingerprint로 처리합니다. 100% 상한은 비정상 입력의 자원 증폭을 막기 위한 입력 안전 경계일 뿐, 권장 변동성 또는 권장 현금수익률 가정이라는 뜻이 아닙니다.
+
+```bash
+uv run phalanx portfolio volatility-overlay-research \
+  --start 2023-01-01 \
+  --end 2026-08-31 \
+  --target-annual-volatility 0.12 \
+  --annual-cash-yield 0 \
+  --output-dir research/volatility-overlay-trials
+```
+
+한 signal date의 reconciled ERC 종목비중을 `x_i`, 해당 ERC의 post-reconciliation forecast 연환산변동성을 `sigma_forecast`, CLI 목표를 `sigma_target`이라 하면 다음과 같이 계산합니다.
+
+```text
+scalar = min(1, sigma_target / sigma_forecast)
+final_equity_weight_i = scalar * x_i
+cash_residual = 1 - sum_i(final_equity_weight_i)
+```
+
+`sigma_target`과 `sigma_forecast`는 양의 유한한 값이어야 하고 scalar는 `0 < scalar <= 1`입니다. `sigma_target`에는 위 `(0, 1]` 입력 범위와 canonical 소수점 이하 12자리 제한도 적용됩니다. 따라서 leverage와 short를 만들지 않으며, scaling 전 ERC 내부 상대비중을 보존합니다. 기존 `x_i <= 0.20` target cap도 scaling 뒤 유지되고 모든 최종 종목비중과 cash residual의 `Decimal` 합계는 정확히 `1`이어야 합니다. forecast가 0, 음수, NaN 또는 infinity이면 clamp·대체값·fallback 없이 해당 scenario를 실패 처리합니다.
+
+네 scenario는 기존 causal rolling window와 동일한 504/756/5 signal schedule을 각각 소비하고, 신호일 종가 뒤 **다음 공통 거래일 수정주가 시가**에 동적 목표 주식비중을 체결합니다. 한 scenario의 ERC 또는 overlay가 실패해도 다른 scenario를 대신 사용하거나 winner를 자동 선택하지 않습니다. 기존 fully-invested ERC solver, KKT 진단, 7-policy backtest 및 `phalanx.constrained_erc_research_trial.v1` schema는 변경하지 않습니다.
+
+연 현금수익률 `y_cash`는 다음 양의 일별 복리계수로 명시 변환합니다. 입력 계약은 `0 <= y_cash <= 1`이고 trailing zero 제거 후 소수점 이하 최대 12자리이며, 연환산 거래일은 source 연구와 같은 252일입니다.
+
+```text
+daily_cash_growth_factor = (1 + y_cash) ** (1 / 252)
+```
+
+최초 체결일에는 그 이전의 관측되지 않은 기간에 이자를 붙이지 않습니다. 최초 체결 다음 공통 거래일부터 각 거래일 open 체결 전에 잔여 현금에만 위 계수를 한 번 적용합니다. `--annual-cash-yield 0`이면 이 경로는 기존 무이자 자기금융 회계와 정확히 같습니다. 주식 평가액에는 cash yield를 적용하지 않으며 리밸런싱은 기존 매수 `0.001`, 매도 `0.0025` 비대칭 비용을 사용합니다.
+
+**Sharpe hurdle 또는 risk-free rate와 cash yield는 서로 다른 입력 개념입니다.** 현재 과거 성과 HTML 리포트의 Sharpe는 문서상 0% 무위험수익률을 사용하고, 이 overlay 명령은 Sharpe나 risk-free-rate 입력을 받지 않습니다. 분석자가 별도로 3%를 risk-free rate 또는 Sharpe excess-return hurdle로 사용하더라도 그 값은 현금 보유액의 실제 성장률을 뜻하지 않으므로 cash yield로 복사하지 않습니다. 특히 이 명령은 3%를 암묵적으로 사용하지 않으며 `--annual-cash-yield`의 기본값은 0입니다. 독립적인 현금수익 가정을 모델링하려는 경우에만 사용자가 그 값을 명시해야 합니다.
+
+각 실행은 별도 `phalanx.volatility_overlay_research_trial.v1` JSON을 private `0600` 파일로 원자 저장하고 기존 파일을 덮어쓰지 않습니다. required target volatility, optional cash yield, 일별 성장계수, source ERC·시장데이터·covariance·solver fingerprint, 네 overlay target, 일별 NAV·동적 주식/현금 비중·비용 경로와 Python/NumPy/scikit-learn provenance를 기록합니다. CLI 수치 입력은 이진 `float`를 거치지 않고 `Decimal`로 검증·fingerprint·직렬화합니다.
+
+해석과 안전 경계는 다음과 같습니다.
+
+- 이 결과는 **current-universe conditional allocation-only research overlay**이며 종목선정 alpha나 전체 전략의 OOS 성과를 증명하지 않습니다.
+- fractional shares와 고정 비용을 쓰는 연구 회계입니다. 정수주, 실계좌 목표수량 또는 주문 초안이 아닙니다.
+- cash residual은 합성 backtest 자산입니다. 계좌 스냅샷의 예수금 총액, 주문가능현금, 실제 잔고·보유수량 또는 투자예산을 읽거나 사용하지 않습니다.
+- covariance 혼합, scenario fallback, winner·추천 자동 선택, leverage와 short를 제공하지 않습니다.
+- KIS 연결은 기존 실전계좌 **READ ONLY** 일별 시세 GET뿐입니다. 잔고를 overlay 입력으로 연결하지 않으며 주문·정정·취소·hashkey endpoint 또는 코드를 추가하지 않습니다.
 
 ## CLI 계약
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -263,23 +264,24 @@ def test_write_failure_leaves_no_partial_file_or_temporary_file(
     assert list(output_dir.glob(f".{output.name}.*.tmp")) == []
 
 
-def test_replace_failure_preserves_racing_file_and_cleans_temporary_file(
+def test_exclusive_publish_preserves_racing_file_and_cleans_temporary_file(
     successful_trial: RiskModelResearchTrial,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir = tmp_path / "risk-trials"
     output = output_dir / f"risk_model_research_trial_{_TRIAL_ID}.json"
+    original_link = os.link
 
-    def fail_replace(source: Path, target: Path) -> None:
+    def race_then_link(source: Path, target: Path) -> None:
         assert source.name.startswith(f".{output.name}.")
         assert target == output
         output.write_bytes(b"racing existing trial")
-        raise OSError("synthetic replace failure")
+        original_link(source, target)
 
-    monkeypatch.setattr(private_storage.os, "replace", fail_replace)
+    monkeypatch.setattr(private_storage.os, "link", race_then_link)
 
-    with pytest.raises(RiskModelTrialStorageError, match="원자적으로"):
+    with pytest.raises(RiskModelTrialAlreadyExistsError, match="덮어쓰지"):
         JsonRiskModelTrialRegistry(output_dir).save(successful_trial)
 
     assert output.read_bytes() == b"racing existing trial"

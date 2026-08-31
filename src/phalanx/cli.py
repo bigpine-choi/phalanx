@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import IntEnum
 from pathlib import Path
 from statistics import median
@@ -21,6 +21,7 @@ from phalanx.config import ConfigError
 from phalanx.domain import (
     CONSTRAINED_ERC_POLICY_ORDER,
     SCENARIO_KIND_ORDER,
+    VOLATILITY_OVERLAY_SCENARIO_POLICY_IDS,
     AccountSnapshot,
     AccountSummary,
     AlignedReturnMatrix,
@@ -36,6 +37,10 @@ from phalanx.domain import (
     LedoitWolfMetadata,
     PsdDiagnostics,
     RiskModelResearchStatus,
+    VolatilityOverlayOutcomeStatus,
+    VolatilityOverlayResearchStatus,
+    canonicalize_annual_cash_yield,
+    canonicalize_target_annual_volatility,
 )
 from phalanx.kis.errors import (
     KisAuthError,
@@ -59,11 +64,13 @@ from phalanx.portfolio.application import (
     ConstrainedErcResearchApplicationResult,
     HistoricalReportResult,
     RiskModelResearchApplicationResult,
+    VolatilityOverlayResearchApplicationResult,
     run_production_aligned_returns,
     run_production_allocation_research,
     run_production_constrained_erc_research,
     run_production_historical_report,
     run_production_risk_model_research,
+    run_production_volatility_overlay_research,
 )
 from phalanx.portfolio.constrained_erc_trial_registry import (
     safe_constrained_erc_failure_display,
@@ -72,8 +79,13 @@ from phalanx.portfolio.errors import (
     AllocationTrialStorageError,
     ConstrainedErcTrialStorageError,
     HistoricalReportError,
+    InvalidVolatilityOverlayDomainError,
     PortfolioAnalysisError,
     RiskModelTrialStorageError,
+    VolatilityOverlayTrialStorageError,
+)
+from phalanx.portfolio.volatility_overlay_trial_registry import (
+    safe_volatility_overlay_failure_display,
 )
 from phalanx.snapshots import SnapshotStorageError
 from phalanx.universe.errors import UniverseError
@@ -168,6 +180,46 @@ def _parse_cli_date_range(start: str, end: str) -> tuple[date, date]:
                 f"{option_name}는 YYYY-MM-DD 형식의 실제 날짜여야 합니다."
             ) from None
     return validate_daily_date_range(parsed[0], parsed[1])
+
+
+def _parse_positive_decimal_option(value: str | Decimal) -> Decimal:
+    """Parse and canonicalize a bounded target without a binary-float hop."""
+
+    parsed = _parse_finite_decimal_option(value)
+    try:
+        return canonicalize_target_annual_volatility(parsed)
+    except InvalidVolatilityOverlayDomainError:
+        raise typer.BadParameter(
+            "0보다 크고 1 이하이며 소수점 이하 최대 12자리인 Decimal 비율이어야 합니다."
+        ) from None
+
+
+def _parse_cash_yield_option(value: str | Decimal) -> Decimal:
+    """Parse and canonicalize a bounded nonnegative annual cash yield."""
+
+    parsed = _parse_finite_decimal_option(value)
+    try:
+        return canonicalize_annual_cash_yield(parsed)
+    except InvalidVolatilityOverlayDomainError:
+        raise typer.BadParameter(
+            "0 이상 1 이하이며 소수점 이하 최대 12자리인 Decimal 비율이어야 합니다."
+        ) from None
+
+
+def _parse_finite_decimal_option(value: str | Decimal) -> Decimal:
+    if type(value) is Decimal:
+        if not value.is_finite():
+            raise typer.BadParameter("유한한 Decimal 비율이어야 합니다.")
+        return value
+    if not isinstance(value, str) or value != value.strip() or not value:
+        raise typer.BadParameter("공백 없는 유한한 Decimal 비율이어야 합니다.")
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation:
+        raise typer.BadParameter("유한한 Decimal 비율이어야 합니다.") from None
+    if not parsed.is_finite():
+        raise typer.BadParameter("유한한 Decimal 비율이어야 합니다.")
+    return parsed
 
 
 def _calculate_asset_reconciliation(summary: AccountSummary) -> tuple[Decimal, Decimal]:
@@ -650,6 +702,120 @@ def render_constrained_erc_research_result(
     console.print("KIS READ ONLY · 주문 미전송")
 
 
+def render_volatility_overlay_research_start(
+    start: str,
+    end: str,
+    output_dir: Path,
+    target_annual_volatility: Decimal,
+    annual_cash_yield: Decimal,
+    console: Console,
+) -> None:
+    """Announce immutable overlay inputs before credentials or network work."""
+
+    console.print("변동성 목표 overlay 연구 시작 · KIS READ ONLY", style="bold green")
+    console.print("조회 대상: 활성 유니버스")
+    console.print(f"시작일: {start}")
+    console.print(f"종료일: {end}")
+    console.print(f"목표 연환산변동성: {format(target_annual_volatility, '.2%')}")
+    console.print(f"연 현금수익률: {format(annual_cash_yield, '.2%')}")
+    console.print(f"출력 디렉터리: {output_dir}")
+    console.print("네 covariance scenario 독립 overlay")
+    console.print("주문 미전송")
+
+
+def render_volatility_overlay_research_result(
+    result: VolatilityOverlayResearchApplicationResult,
+    console: Console,
+) -> None:
+    """Render four overlay outcomes in their preregistered scenario order."""
+
+    trial = result.trial
+    outcomes_by_id = {outcome.policy_id: outcome for outcome in trial.policy_outcomes}
+    console.print("변동성 목표 및 현금 residual overlay · READ ONLY", style="bold")
+    for policy_id in VOLATILITY_OVERLAY_SCENARIO_POLICY_IDS:
+        outcome = outcomes_by_id[policy_id]
+        table = Table(title=policy_id)
+        table.add_column("항목", style="bold")
+        table.add_column("값", justify="right")
+        if (
+            outcome.status is VolatilityOverlayOutcomeStatus.SUCCEEDED
+            and outcome.result is not None
+        ):
+            policy_result = outcome.result
+            latest_target = outcome.overlay_targets[-1] if outcome.overlay_targets else None
+            table.add_row("상태", "성공")
+            table.add_row(
+                "실제 평가기간",
+                f"{policy_result.dates[0].isoformat()}~{policy_result.dates[-1].isoformat()}",
+            )
+            table.add_row("리밸런싱 횟수", f"{len(policy_result.rebalances)}회")
+            table.add_row("총수익률", format(policy_result.total_return, ".2%"))
+            table.add_row("연환산수익률", format(policy_result.annualized_return, ".2%"))
+            table.add_row("연환산변동성", format(policy_result.annualized_volatility, ".2%"))
+            table.add_row("최대 Drawdown", format(policy_result.max_drawdown, ".2%"))
+            table.add_row("매수 gross turnover", format(policy_result.buy_gross_turnover, ".2%"))
+            table.add_row("매도 gross turnover", format(policy_result.sell_gross_turnover, ".2%"))
+            table.add_row("누적 비용률", format(policy_result.cumulative_cost_rate, ".2%"))
+            if latest_target is None:
+                table.add_row("마지막 forecast 연환산변동성", "N/A")
+                table.add_row("마지막 risky scalar", "N/A")
+                table.add_row("마지막 목표 주식비중", "N/A")
+                table.add_row("마지막 현금 residual", "N/A")
+            else:
+                table.add_row(
+                    "마지막 forecast 연환산변동성",
+                    format(latest_target.forecast_annual_volatility, ".2%"),
+                )
+                table.add_row("마지막 risky scalar", format(latest_target.scalar, ".4f"))
+                table.add_row(
+                    "마지막 목표 주식비중",
+                    format(latest_target.target_equity_weight, ".2%"),
+                )
+                table.add_row(
+                    "마지막 현금 residual",
+                    format(latest_target.cash_residual, ".2%"),
+                )
+        else:
+            table.add_row("상태", "실패")
+            if outcome.failure is None:
+                failure_code, failure_reason = "N/A", "N/A"
+            else:
+                failure_code, failure_reason = safe_volatility_overlay_failure_display(
+                    outcome.failure
+                )
+            table.add_row("실패 코드", failure_code)
+            table.add_row(
+                "실패 사유",
+                failure_reason,
+            )
+            console.print(failure_reason)
+            for label in (
+                "실제 평가기간",
+                "리밸런싱 횟수",
+                "총수익률",
+                "연환산수익률",
+                "연환산변동성",
+                "최대 Drawdown",
+                "매수 gross turnover",
+                "매도 gross turnover",
+                "누적 비용률",
+                "마지막 forecast 연환산변동성",
+                "마지막 risky scalar",
+                "마지막 목표 주식비중",
+                "마지막 현금 residual",
+            ):
+                table.add_row(label, "N/A")
+        console.print(table)
+    console.print(
+        f"입력 목표 연환산변동성: {format(trial.overlay_config.target_annual_volatility, '.2%')}"
+    )
+    console.print(f"연 현금수익률: {format(trial.overlay_config.annual_cash_yield, '.2%')}")
+    console.print(f"trial 상태: {trial.status.value}")
+    console.print(f"trial JSON 저장 경로: {result.saved_path}")
+    console.print("current-universe conditional allocation-only")
+    console.print("KIS READ ONLY · 주문 미전송")
+
+
 def render_risk_model_research_result(
     result: RiskModelResearchApplicationResult,
     console: Console,
@@ -1070,6 +1236,53 @@ def run_cli_constrained_erc_research(
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_volatility_overlay_research(
+    runner: Callable[[], VolatilityOverlayResearchApplicationResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run one persisted volatility-overlay trial with secret-safe outcomes."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_volatility_overlay_research_result(result, output)
+        if result.trial.status is not VolatilityOverlayResearchStatus.SUCCEEDED:
+            errors.print(
+                "변동성 목표 overlay 연구 오류: 한 개 이상의 scenario 계산이 실패했습니다."
+            )
+            return int(ExitCode.PORTFOLIO_ANALYSIS)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except PortfolioAnalysisError:
+        errors.print("변동성 목표 overlay 연구 오류: 분석·수치 품질 검사를 완료하지 못했습니다.")
+        return int(ExitCode.PORTFOLIO_ANALYSIS)
+    except VolatilityOverlayTrialStorageError:
+        errors.print("변동성 목표 overlay trial 저장 오류: JSON을 안전하게 저장하지 못했습니다.")
+        return int(ExitCode.PORTFOLIO_STORAGE)
+    except (
+        MarketDataError,
+        KisMarketDataClientError,
+        KisMarketDataParsingError,
+        UniverseError,
+    ) as error:
+        errors.print(f"시세 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 변동성 목표 overlay 연구를 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 변동성 목표 overlay 연구를 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def _exit_after_market_data[MarketDataResult](
     runner: Callable[[], MarketDataResult],
     renderer: Callable[[MarketDataResult, Console], None],
@@ -1127,6 +1340,16 @@ def _exit_after_constrained_erc_research(
     console: Console | None = None,
 ) -> None:
     exit_code = run_cli_constrained_erc_research(runner, console=console)
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
+def _exit_after_volatility_overlay_research(
+    runner: Callable[[], VolatilityOverlayResearchApplicationResult],
+    *,
+    console: Console | None = None,
+) -> None:
+    exit_code = run_cli_volatility_overlay_research(runner, console=console)
     if exit_code != ExitCode.SUCCESS:
         raise typer.Exit(exit_code)
 
@@ -1398,6 +1621,59 @@ def portfolio_constrained_erc_research(
     )
 
 
+@portfolio_app.command("volatility-overlay-research")
+def portfolio_volatility_overlay_research(
+    start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="조회 종료일 YYYY-MM-DD")],
+    target_annual_volatility: Annotated[
+        Decimal,
+        typer.Option(
+            "--target-annual-volatility",
+            help="목표 연환산변동성 Decimal 비율",
+            parser=_parse_positive_decimal_option,
+            metavar="DECIMAL",
+        ),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="고유 volatility overlay trial JSON 출력 디렉터리"),
+    ],
+    annual_cash_yield: Annotated[
+        Decimal,
+        typer.Option(
+            "--annual-cash-yield",
+            help="연 현금수익률 Decimal 비율 (기본값 0)",
+            parser=_parse_cash_yield_option,
+            metavar="DECIMAL",
+        ),
+    ] = Decimal("0"),
+) -> None:
+    """네 covariance ERC risky sleeve에 독립 변동성 overlay를 적용합니다."""
+
+    output = _console()
+    render_volatility_overlay_research_start(
+        start,
+        end,
+        output_dir,
+        target_annual_volatility,
+        annual_cash_yield,
+        output,
+    )
+    _exit_after_volatility_overlay_research(
+        lambda: run_production_volatility_overlay_research(
+            *_parse_cli_date_range(start, end),
+            target_annual_volatility,
+            annual_cash_yield,
+            output_dir=output_dir,
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification,
+                output,
+            ),
+        ),
+        console=output,
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
 
@@ -1416,6 +1692,7 @@ __all__ = [
     "portfolio_historical_report",
     "portfolio_returns",
     "portfolio_risk_model_research",
+    "portfolio_volatility_overlay_research",
     "render_aligned_return_matrix",
     "render_allocation_research_result",
     "render_allocation_research_start",
@@ -1432,6 +1709,8 @@ __all__ = [
     "render_snapshot_summary",
     "render_universe",
     "render_universe_market_data",
+    "render_volatility_overlay_research_result",
+    "render_volatility_overlay_research_start",
     "run_cli_allocation_research",
     "run_cli_constrained_erc_research",
     "run_cli_historical_report",
@@ -1439,6 +1718,7 @@ __all__ = [
     "run_cli_portfolio_returns",
     "run_cli_risk_model_research",
     "run_cli_snapshot",
+    "run_cli_volatility_overlay_research",
     "universe_add",
     "universe_disable",
     "universe_enable",
