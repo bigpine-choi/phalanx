@@ -302,6 +302,11 @@ def safe_volatility_overlay_failure(
     from phalanx.domain import CovarianceScenarioKind
 
     selected_scenario = scenario_kind if isinstance(scenario_kind, CovarianceScenarioKind) else None
+    selected_as_of_date = as_of_date
+    if selected_as_of_date is None and isinstance(error, AllocationSelfFinancingError):
+        error_as_of_date = error.as_of_date
+        if type(error_as_of_date) is date:
+            selected_as_of_date = error_as_of_date
     code = "volatility_overlay_calculation_error"
     message = "volatility overlay 정책 계산을 완료하지 못했습니다."
     if isinstance(error, InvalidVolatilityOverlayDomainError):
@@ -316,7 +321,7 @@ def safe_volatility_overlay_failure(
     return VolatilityOverlayFailure(
         code=code,
         message=message,
-        as_of_date=as_of_date,
+        as_of_date=selected_as_of_date,
         scenario_kind=selected_scenario,
     )
 

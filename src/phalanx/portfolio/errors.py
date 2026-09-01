@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 
 class PortfolioAnalysisError(Exception):
     """Base class for expected portfolio-analysis failures."""
@@ -237,6 +239,10 @@ class AllocationZeroVolatilityError(AllocationResearchError):
 
 class AllocationSelfFinancingError(AllocationResearchError):
     """Raised when transaction costs cannot be reconciled without external cash."""
+
+    def __init__(self, message: str, *, as_of_date: date | None = None) -> None:
+        self.as_of_date = as_of_date
+        super().__init__(message)
 
 
 class AllocationTrialStorageError(Exception):
