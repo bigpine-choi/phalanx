@@ -20,6 +20,8 @@ from phalanx.domain import (
     AllocationBacktestConfig,
     AllocationPolicyInput,
     AllocationTarget,
+    calculate_volatility_scalar,
+    scale_risky_sleeve,
 )
 from phalanx.portfolio.allocation_backtest import (
     ScheduledAllocationTarget,
@@ -94,6 +96,174 @@ def _scheduled_target(
             target_equity_weight=target_equity_weight,
         ),
     )
+
+
+_RECONCILIATION_STOCK_CODES = (
+    "000660",
+    "257720",
+    "014680",
+    "071970",
+    "013030",
+    "192080",
+    "271560",
+    "105560",
+    "035420",
+    "000270",
+)
+_RECONCILIATION_DATES = (
+    date(2026, 3, 27),
+    date(2026, 3, 30),
+    date(2026, 3, 31),
+)
+_RECONCILIATION_CASH_BEFORE = Decimal(
+    "1.0533901355293224561374265368887003207152558580785"
+)
+_RECONCILIATION_CURRENT_VALUES = tuple(
+    map(
+        Decimal,
+        (
+            "0.042170637859817921821859765169790267376835797751629",
+            "0.072822738708863576114234651087489367510471215252634",
+            "0.066962005711076712413426021569269381373763663692592",
+            "0.060585529568117823254829857231452738939175531919019",
+            "0.069614453082734991764327134109683668124453729703563",
+            "0.11709143996620280351456941818152166817692364857267",
+            "0.13433467788774044933763630762857231024166224155133",
+            "0.082851299003142305177239190795582018928693355486753",
+            "0.086291458835808546891385276974155832599816292916930",
+            "0.063733182984901262811378324359555363445447263262483",
+        ),
+    )
+)
+_RECONCILIATION_PRE_TRADE_QUANTITIES = tuple(
+    map(
+        Decimal,
+        (
+            "5.1616447808834665632631291517491147340068295901627E-8",
+            "0.0000019602352276948472709080659781289197176439088897075",
+            "2.6004662412068626179971270512337623834471325705861E-7",
+            "8.6058990863803726214246956294677185993147062384970E-7",
+            "0.0000019582124636493668569430980058982747714332976006628",
+            "0.0000023750799181785558522225034113898918494304999710481",
+            "0.0000010868501447228191693983520034674135132820569704800",
+            "5.7575607368410219025183593325630311972684750164526E-7",
+            "4.2613066091757307106856926900817695111020391563916E-7",
+            "4.3923627143281366513699741116164964469639740360085E-7",
+        ),
+    )
+)
+_RECONCILIATION_FAILURE_OPENS = tuple(
+    map(
+        Decimal,
+        (
+            "817000",
+            "37150",
+            "257500",
+            "70400",
+            "35550",
+            "49300",
+            "123600",
+            "143900",
+            "202500",
+            "145100",
+        ),
+    )
+)
+_RECONCILIATION_RISKY_WEIGHTS = tuple(
+    map(
+        Decimal,
+        (
+            "0.059386736727",
+            "0.088930896685",
+            "0.087839936046",
+            "0.075925264425",
+            "0.0878601922",
+            "0.146023341739",
+            "0.155134855187",
+            "0.101126882879",
+            "0.109478459817",
+            "0.088293434295",
+        ),
+    )
+)
+_RECONCILIATION_FORECAST = Decimal("0.32699485803561146")
+
+
+def _run_reconciliation_regression(
+    target_annual_volatility: Decimal,
+    *,
+    buy_cost_rate: Decimal = Decimal("0.001"),
+    sell_cost_rate: Decimal = Decimal("0.0025"),
+):
+    calculation_context = Context(prec=50, rounding=ROUND_HALF_EVEN)
+    with localcontext(calculation_context):
+        setup_post_trade_nav = Decimal(2) * _RECONCILIATION_CASH_BEFORE
+        setup_asset_value = Decimal("0.05") * setup_post_trade_nav
+        initial_nav = (
+            setup_post_trade_nav
+            + _RECONCILIATION_CASH_BEFORE * buy_cost_rate
+        )
+    with localcontext(Context(prec=100, rounding=ROUND_HALF_EVEN)):
+        setup_opens = tuple(
+            setup_asset_value / quantity
+            for quantity in _RECONCILIATION_PRE_TRADE_QUANTITIES
+        )
+        scalar = calculate_volatility_scalar(
+            target_annual_volatility,
+            _RECONCILIATION_FORECAST,
+        )
+        target_weights = scale_risky_sleeve(
+            _RECONCILIATION_RISKY_WEIGHTS,
+            scalar,
+        )
+        setup_target = AllocationTarget(
+            signal_date=_RECONCILIATION_DATES[0],
+            stock_codes=_RECONCILIATION_STOCK_CODES,
+            target_weights=(Decimal("0.05"),) * 10,
+            policy_id="volatility_overlay_fast_iewma",
+            target_equity_weight=Decimal("0.5"),
+        )
+        regression_target = AllocationTarget(
+            signal_date=_RECONCILIATION_DATES[1],
+            stock_codes=_RECONCILIATION_STOCK_CODES,
+            target_weights=target_weights,
+            policy_id="volatility_overlay_fast_iewma",
+            target_equity_weight=scalar,
+        )
+    panel = AlignedPricePanel(
+        stock_codes=_RECONCILIATION_STOCK_CODES,
+        dates=_RECONCILIATION_DATES,
+        open_prices=(
+            setup_opens,
+            setup_opens,
+            _RECONCILIATION_FAILURE_OPENS,
+        ),
+        close_prices=(
+            setup_opens,
+            setup_opens,
+            _RECONCILIATION_FAILURE_OPENS,
+        ),
+    )
+    config = AllocationBacktestConfig(
+        minimum_training_returns=1,
+        maximum_training_returns=1,
+        rebalance_interval=1,
+        target_equity_weight=Decimal(1),
+        buy_cost_rate=buy_cost_rate,
+        sell_cost_rate=sell_cost_rate,
+    )
+    result = run_allocation_backtest_with_dynamic_targets(
+        panel,
+        "volatility_overlay_fast_iewma",
+        (
+            ScheduledAllocationTarget(1, setup_target),
+            ScheduledAllocationTarget(2, regression_target),
+        ),
+        config,
+        annual_cash_yield=Decimal(0),
+        initial_nav=initial_nav,
+    )
+    return result, panel, scalar
 
 
 class SpyEqualWeightPolicy:
@@ -218,8 +388,10 @@ def test_fully_invested_realized_weights_reconcile_decimal_division_residual() -
 
         weights, cash_weight = allocation_backtest_module._realized_weights(
             stock_values,
+            nav,
             Decimal(0),
             nav,
+            getcontext(),
         )
 
         assert cash_weight == Decimal(0)
@@ -238,8 +410,10 @@ def test_fully_invested_residual_anchor_skips_a_zero_weight_last_asset() -> None
 
         weights, cash_weight = allocation_backtest_module._realized_weights(
             stock_values,
+            nav,
             Decimal(0),
             nav,
+            getcontext(),
         )
 
         assert weights[-1] == Decimal(0)
@@ -321,6 +495,295 @@ def test_asymmetric_costs_reconcile_self_financing_and_leave_nonnegative_cash() 
     assert second.cash_after >= 0
     assert all(value >= 0 for value in result.realized_cash_weights)
     assert result.cumulative_transaction_cost == expected_cumulative_cost
+
+
+def test_fast_iewma_15_percent_decimal_ulp_reconciles_through_public_dynamic_path() -> None:
+    result, panel, scalar = _run_reconciliation_regression(Decimal("0.15"))
+    second = result.rebalances[1]
+
+    with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)) as context:
+        desired_values = allocation_backtest_module._desired_values(
+            second.target,
+            second.post_trade_nav,
+        )
+        quantities = tuple(
+            value / price
+            for value, price in zip(desired_values, panel.open_prices[2], strict=True)
+        )
+        actual_values = tuple(
+            quantity * price
+            for quantity, price in zip(quantities, panel.open_prices[2], strict=True)
+        )
+        actual_stock_total = sum(actual_values, Decimal(0))
+        pre_trade_values = tuple(
+            quantity * price
+            for quantity, price in zip(
+                _RECONCILIATION_PRE_TRADE_QUANTITIES,
+                panel.open_prices[2],
+                strict=True,
+            )
+        )
+        recombined_nav = actual_stock_total + second.cash_after
+        nav_ulp = context.next_plus(second.post_trade_nav) - second.post_trade_nav
+        expected_post_trade_nav = second.pre_trade_nav - second.transaction_cost
+        expected_cash_after = second.post_trade_nav - actual_stock_total
+        exact_weight_total = (
+            sum(second.realized_weights, Decimal(0)) + second.realized_cash_weight
+        )
+
+    assert second.target.signal_date == date(2026, 3, 30)
+    assert second.execution_date == date(2026, 3, 31)
+    assert scalar == Decimal(
+        "0.45872280959128785754530805531058095109443420937016"
+    )
+    assert second.pre_trade_nav == Decimal(
+        "1.8498475591377288492383124839957729374324985981881"
+    )
+    assert pre_trade_values == _RECONCILIATION_CURRENT_VALUES
+    assert second.post_trade_nav == Decimal(
+        "1.8497860390784402358439935678962036831930951327833"
+    )
+    assert second.transaction_cost == Decimal(
+        "0.000061520059288613394318916099569254239403465404831778"
+    )
+    assert second.cash_after == Decimal(
+        "1.0012469900896383355551019429876288213394645397066"
+    )
+    assert second.post_trade_nav == expected_post_trade_nav
+    assert second.cash_after == expected_cash_after
+    assert recombined_nav - second.post_trade_nav == nav_ulp == Decimal("1E-49")
+    assert second.cash_after >= 0
+    assert second.buy_gross_turnover > 0
+    assert second.sell_gross_turnover > 0
+    assert exact_weight_total == Decimal(1)
+
+
+@pytest.mark.parametrize(
+    ("target_volatility", "expected_scalar", "expected_post_nav", "expected_cost", "expected_cash"),
+    (
+        (
+            Decimal("0.20"),
+            Decimal("0.61163041278838381006041074041410793479257894582688"),
+            Decimal("1.8495127982850647626305315044937983148660828335524"),
+            Decimal("0.00033476085266408660778097950197462256641576463569495"),
+            Decimal("0.7182945220125717617486660554121031317330754577478"),
+        ),
+        (
+            Decimal("0.25"),
+            Decimal("0.76453801598547976257551342551763491849072368228360"),
+            Decimal("1.8492302097656626033813970922512979002085483511462"),
+            Decimal("0.00061734937206624585691539174447503722395024704188573"),
+            Decimal("0.4354234140910103533651194006691880595410585691509"),
+        ),
+        (
+            Decimal("0.30"),
+            Decimal("0.91744561918257571509061611062116190218886841874033"),
+            Decimal("1.8489477075869139753930812775281965192768891940856"),
+            Decimal("0.00089985155081487384523120646757641815560940410253460"),
+            Decimal("0.1526387331636337370609888628447057469502423514414"),
+        ),
+    ),
+)
+def test_existing_fast_iewma_higher_target_solver_and_cost_golden_remain_unchanged(
+    target_volatility: Decimal,
+    expected_scalar: Decimal,
+    expected_post_nav: Decimal,
+    expected_cost: Decimal,
+    expected_cash: Decimal,
+) -> None:
+    result, panel, scalar = _run_reconciliation_regression(target_volatility)
+    second = result.rebalances[1]
+    with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
+        desired_values = allocation_backtest_module._desired_values(
+            second.target,
+            second.post_trade_nav,
+        )
+        actual_stock_total = sum(
+            (
+                (value / price) * price
+                for value, price in zip(
+                    desired_values,
+                    panel.open_prices[2],
+                    strict=True,
+                )
+            ),
+            Decimal(0),
+        )
+        expected_actual_cash = second.post_trade_nav - actual_stock_total
+        expected_reconciled_nav = second.pre_trade_nav - second.transaction_cost
+        exact_weight_total = (
+            sum(second.realized_weights, Decimal(0)) + second.realized_cash_weight
+        )
+
+    assert scalar == expected_scalar
+    assert second.post_trade_nav == expected_post_nav
+    assert second.transaction_cost == expected_cost
+    assert second.cash_after == expected_cash
+    assert second.cash_after == expected_actual_cash
+    assert second.post_trade_nav == expected_reconciled_nav
+    assert exact_weight_total == Decimal(1)
+
+
+def test_fast_iewma_reconciliation_with_zero_cost_preserves_nav_and_cash_flow() -> None:
+    result, panel, _ = _run_reconciliation_regression(
+        Decimal("0.15"),
+        buy_cost_rate=Decimal(0),
+        sell_cost_rate=Decimal(0),
+    )
+    second = result.rebalances[1]
+
+    with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
+        desired_values = allocation_backtest_module._desired_values(
+            second.target,
+            second.post_trade_nav,
+        )
+        quantities = tuple(
+            value / price
+            for value, price in zip(desired_values, panel.open_prices[2], strict=True)
+        )
+        actual_stock_total = sum(
+            (
+                quantity * price
+                for quantity, price in zip(
+                    quantities,
+                    panel.open_prices[2],
+                    strict=True,
+                )
+            ),
+            Decimal(0),
+        )
+        expected_cash_after = second.post_trade_nav - actual_stock_total
+        exact_weight_total = (
+            sum(second.realized_weights, Decimal(0)) + second.realized_cash_weight
+        )
+
+    assert second.pre_trade_nav == Decimal(
+        "1.8498475591377288492383124839957729374324985981881"
+    )
+    assert second.post_trade_nav == second.pre_trade_nav
+    assert second.transaction_cost == 0
+    assert second.cash_after == Decimal(
+        "1.0012802894944838536074110367098467502968283462966"
+    )
+    assert second.cash_after == expected_cash_after
+    assert exact_weight_total == Decimal(1)
+
+
+def test_realized_weight_nav_reconciliation_accepts_one_ulp_and_rejects_two() -> None:
+    context = Context(prec=50, rounding=ROUND_HALF_EVEN)
+    with localcontext(context):
+        nav = Decimal(1)
+        stock_values = (Decimal("0.2"),)
+        stock_total = stock_values[0]
+        one_ulp_cash = context.next_plus(nav) - stock_total
+        weights, cash_weight = allocation_backtest_module._realized_weights(
+            stock_values,
+            stock_total,
+            one_ulp_cash,
+            nav,
+            context,
+        )
+        two_ulp_cash = context.next_plus(context.next_plus(nav)) - stock_total
+
+        with pytest.raises(AllocationSelfFinancingError, match="1 Decimal ULP"):
+            allocation_backtest_module._realized_weights(
+                stock_values,
+                stock_total,
+                two_ulp_cash,
+                nav,
+                context,
+            )
+
+    assert sum(weights, Decimal(0)) + cash_weight == Decimal(1)
+
+
+@pytest.mark.parametrize(
+    ("stock_values", "stock_total", "cash", "nav"),
+    (
+        ((Decimal("0.5"),), Decimal("0.5"), Decimal("-0.1"), Decimal("0.4")),
+        ((Decimal("-0.1"),), Decimal("-0.1"), Decimal("1.1"), Decimal(1)),
+        ((Decimal("NaN"),), Decimal("0.5"), Decimal("0.5"), Decimal(1)),
+        ((Decimal("-Infinity"),), Decimal("0.5"), Decimal("0.5"), Decimal(1)),
+        ((Decimal("0.5"),), Decimal("Infinity"), Decimal("0.5"), Decimal(1)),
+        ((Decimal("0.5"),), Decimal("0.5"), Decimal("NaN"), Decimal(1)),
+        ((Decimal("0.5"),), Decimal("0.5"), Decimal("0.5"), Decimal("Infinity")),
+    ),
+)
+def test_realized_weight_reconciliation_rejects_negative_or_nonfinite_values(
+    stock_values: tuple[Decimal, ...],
+    stock_total: Decimal,
+    cash: Decimal,
+    nav: Decimal,
+) -> None:
+    context = Context(prec=50, rounding=ROUND_HALF_EVEN)
+
+    with pytest.raises(AllocationSelfFinancingError):
+        allocation_backtest_module._realized_weights(
+            stock_values,
+            stock_total,
+            cash,
+            nav,
+            context,
+        )
+
+
+def test_nav_ulp_calculation_fails_closed_when_next_value_is_infinite() -> None:
+    context = Context(prec=2, rounding=ROUND_HALF_EVEN, Emax=1, Emin=-1)
+
+    with pytest.raises(AllocationSelfFinancingError, match=r"ULP.*양의 유한"):
+        allocation_backtest_module._nav_ulp(Decimal("99"), context)
+
+
+def test_target_value_underflow_is_rejected_before_phantom_holdings_can_succeed() -> None:
+    extreme_price = Decimal((0, (1,), 1_000_050))
+    panel = AlignedPricePanel(
+        stock_codes=("000001", "000002"),
+        dates=(date(2026, 1, 1), date(2026, 1, 2)),
+        open_prices=((extreme_price, extreme_price),) * 2,
+        close_prices=((extreme_price, extreme_price),) * 2,
+    )
+    target = AllocationTarget(
+        signal_date=panel.dates[0],
+        stock_codes=panel.stock_codes,
+        target_weights=(Decimal("0.4"), Decimal("0.4")),
+        policy_id="underflow_probe",
+        target_equity_weight=Decimal("0.8"),
+    )
+
+    with pytest.raises(AllocationSelfFinancingError, match="underflow"):
+        run_allocation_backtest_with_dynamic_targets(
+            panel,
+            "underflow_probe",
+            (ScheduledAllocationTarget(1, target),),
+            AllocationBacktestConfig(),
+            annual_cash_yield=Decimal(0),
+        )
+
+
+def test_self_financing_failure_carries_the_failing_signal_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panel = _panel(
+        tuple((Decimal("100"),) for _ in range(3)),
+        stock_codes=("005930",),
+    )
+    schedule = (_scheduled_target(panel, 1, Decimal("0.5")),)
+
+    def fail_execution(*args: object, **kwargs: object) -> None:
+        raise AllocationSelfFinancingError("APP_SECRET=must-not-escape")
+
+    monkeypatch.setattr(allocation_backtest_module, "_execute_target", fail_execution)
+
+    with pytest.raises(AllocationSelfFinancingError) as caught:
+        run_allocation_backtest_with_dynamic_targets(
+            panel,
+            "dynamic_equity_target",
+            schedule,
+            AllocationBacktestConfig(),
+            annual_cash_yield=Decimal(0),
+        )
+
+    assert caught.value.as_of_date == panel.dates[0]
 
 
 def test_dynamic_equity_targets_preserve_asymmetric_self_financing_costs() -> None:

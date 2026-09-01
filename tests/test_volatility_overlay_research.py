@@ -28,9 +28,13 @@ from phalanx.domain import (
 from phalanx.market_data.service import StockDailyBars
 from phalanx.portfolio.constrained_erc import ConstrainedErcSolver
 from phalanx.portfolio.dynamic_risk_model import DynamicRiskModel
-from phalanx.portfolio.errors import InvalidVolatilityOverlayDomainError
+from phalanx.portfolio.errors import (
+    AllocationSelfFinancingError,
+    InvalidVolatilityOverlayDomainError,
+)
 from phalanx.portfolio.volatility_overlay_research import (
     conduct_volatility_overlay_research,
+    safe_volatility_overlay_failure,
 )
 
 START = date(2025, 1, 1)
@@ -281,6 +285,21 @@ def test_one_source_scenario_failure_has_no_fallback_or_winner() -> None:
     assert failed.failure.code == "volatility_overlay_source_erc_failure"
     assert "must-not-escape" not in failed.failure.message
     assert solver.calls.count(CovarianceScenarioKind.FAST_IEWMA) == 1
+
+
+def test_self_financing_failure_projects_only_safe_code_message_and_signal_date() -> None:
+    failure = safe_volatility_overlay_failure(
+        AllocationSelfFinancingError(
+            "APP_SECRET=must-not-escape",
+            as_of_date=START,
+        ),
+        scenario_kind=CovarianceScenarioKind.FAST_IEWMA,
+    )
+
+    assert failure.code == "volatility_overlay_self_financing_failure"
+    assert failure.as_of_date == START
+    assert failure.scenario_kind is CovarianceScenarioKind.FAST_IEWMA
+    assert "must-not-escape" not in failure.message
 
 
 def test_target_and_cash_yield_are_both_part_of_deterministic_identity() -> None:
