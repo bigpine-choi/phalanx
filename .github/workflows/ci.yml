@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
+      _TYPER_FORCE_DISABLE_TERMINAL: "1"
       UV_NO_ENV_FILE: "1"
       UV_NO_SYNC: "1"
     steps:
