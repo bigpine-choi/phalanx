@@ -9,8 +9,6 @@ from decimal import (
     Context,
     Decimal,
     DecimalException,
-    Subnormal,
-    Underflow,
     localcontext,
 )
 
@@ -30,9 +28,14 @@ from phalanx.portfolio.errors import (
     AllocationSelfFinancingError,
     InvalidAllocationTargetError,
 )
+from phalanx.portfolio.self_financing import (
+    SelfFinancingTransitionInput,
+    _realized_weights,
+    _value_holdings,
+    apply_fractional_self_financing_transition,
+)
 
 _ALLOCATION_DECIMAL_PRECISION = 50
-_MAX_FIXED_POINT_ITERATIONS = 256
 _ZERO = Decimal(0)
 _ONE = Decimal(1)
 
@@ -465,458 +468,31 @@ def _execute_target(
     config: AllocationBacktestConfig,
     context: Context,
 ) -> tuple[tuple[Decimal, ...], Decimal, AllocationRebalanceRecord]:
-    if not isinstance(cash, Decimal) or not cash.is_finite() or cash < 0:
-        raise AllocationSelfFinancingError(
-            "자기금융 체결 전 현금은 0 이상의 유한한 Decimal이어야 합니다."
+    transition = apply_fractional_self_financing_transition(
+        SelfFinancingTransitionInput._from_validated_values(
+            current_quantities=quantities,
+            cash_before=cash,
+            valuation_prices=open_prices,
+            target_weights=target.target_weights,
+            target_equity_weight=target.target_equity_weight,
+            buy_cost_rate=config.buy_cost_rate,
+            sell_cost_rate=config.sell_cost_rate,
         )
-    current_values, current_stock_total = _value_holdings(
-        quantities,
-        open_prices,
-        context,
-    )
-    try:
-        pre_trade_nav = context.add(cash, current_stock_total)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "자기금융 체결 전 NAV를 유한한 Decimal로 계산하지 못했습니다."
-        ) from None
-    if not pre_trade_nav.is_finite() or pre_trade_nav <= 0:
-        raise AllocationSelfFinancingError(
-            "자기금융 체결 전 NAV는 양의 유한한 Decimal이어야 합니다."
-        )
-    post_trade_nav = pre_trade_nav
-    seen_candidates: set[Decimal] = set()
-    for _ in range(_MAX_FIXED_POINT_ITERATIONS):
-        if post_trade_nav in seen_candidates:
-            raise AllocationSelfFinancingError(
-                "비대칭 거래비용 자기금융 계산이 순환하여 수렴하지 않았습니다."
-            )
-        seen_candidates.add(post_trade_nav)
-        desired_values = _desired_values(target, post_trade_nav)
-        buys, sells = _trade_notionals(current_values, desired_values)
-        transaction_cost = buys * config.buy_cost_rate + sells * config.sell_cost_rate
-        next_post_trade_nav = pre_trade_nav - transaction_cost
-        if next_post_trade_nav <= 0:
-            raise AllocationSelfFinancingError(
-                "거래비용 차감 후 NAV가 0 이하이므로 자기금융 체결이 불가능합니다."
-            )
-        if next_post_trade_nav == post_trade_nav:
-            break
-        post_trade_nav = next_post_trade_nav
-    else:
-        raise AllocationSelfFinancingError(
-            "비대칭 거래비용 자기금융 계산이 허용 횟수 안에 수렴하지 않았습니다."
-        )
-
-    desired_values = _desired_values(target, post_trade_nav)
-    buys, sells = _trade_notionals(current_values, desired_values)
-    transaction_cost = buys * config.buy_cost_rate + sells * config.sell_cost_rate
-    reconciled_post_nav = pre_trade_nav - transaction_cost
-    if reconciled_post_nav != post_trade_nav:
-        raise AllocationSelfFinancingError(
-            "자기금융 거래비용과 거래 후 NAV가 정확히 대사되지 않습니다."
-        )
-    new_quantities, actual_values, actual_stock_total = _value_target_holdings(
-        target,
-        desired_values,
-        open_prices,
-        post_trade_nav,
-        context,
-    )
-    try:
-        cash_after = context.subtract(post_trade_nav, actual_stock_total)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "자기금융 체결 후 잔여 현금을 유한한 Decimal로 계산하지 못했습니다."
-        ) from None
-    if not cash_after.is_finite() or cash_after < 0:
-        raise AllocationSelfFinancingError("자기금융 체결 후 잔여 현금이 음수입니다.")
-    realized, realized_cash = _realized_weights(
-        actual_values,
-        actual_stock_total,
-        cash_after,
-        post_trade_nav,
-        context,
     )
     record = AllocationRebalanceRecord(
         target=target,
         execution_date=execution_date,
-        realized_weights=realized,
-        realized_cash_weight=realized_cash,
-        buy_gross_turnover=buys / pre_trade_nav,
-        sell_gross_turnover=sells / pre_trade_nav,
-        transaction_cost=transaction_cost,
-        transaction_cost_rate=transaction_cost / pre_trade_nav,
-        pre_trade_nav=pre_trade_nav,
-        post_trade_nav=post_trade_nav,
-        cash_after=cash_after,
+        realized_weights=transition.realized_weights,
+        realized_cash_weight=transition.realized_cash_weight,
+        buy_gross_turnover=transition.buy_gross_turnover,
+        sell_gross_turnover=transition.sell_gross_turnover,
+        transaction_cost=transition.transaction_cost,
+        transaction_cost_rate=transition.transaction_cost_rate,
+        pre_trade_nav=transition.pre_trade_nav,
+        post_trade_nav=transition.post_trade_nav,
+        cash_after=transition.cash_after,
     )
-    return new_quantities, cash_after, record
-
-
-def _desired_values(target: AllocationTarget, post_trade_nav: Decimal) -> tuple[Decimal, ...]:
-    if len(target.target_weights) == 1:
-        return (target.target_equity_weight * post_trade_nav,)
-    leading = tuple(weight * post_trade_nav for weight in target.target_weights[:-1])
-    final_value = target.target_equity_weight * post_trade_nav - sum(leading, _ZERO)
-    return (*leading, final_value)
-
-
-def _trade_notionals(
-    current_values: tuple[Decimal, ...],
-    desired_values: tuple[Decimal, ...],
-) -> tuple[Decimal, Decimal]:
-    changes = tuple(
-        desired - current for current, desired in zip(current_values, desired_values, strict=True)
-    )
-    buys = sum((change for change in changes if change > 0), _ZERO)
-    sells = sum((-change for change in changes if change < 0), _ZERO)
-    return buys, sells
-
-
-def _value_holdings(
-    quantities: tuple[Decimal, ...],
-    prices: tuple[Decimal, ...],
-    context: Context,
-) -> tuple[tuple[Decimal, ...], Decimal]:
-    if len(quantities) != len(prices):
-        raise AllocationSelfFinancingError(
-            "보유수량과 평가가격의 종목 수가 일치하지 않습니다."
-        )
-    if any(
-        not isinstance(value, Decimal) or not value.is_finite() or value < 0
-        for value in quantities
-    ):
-        raise AllocationSelfFinancingError(
-            "보유수량은 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    if any(
-        not isinstance(value, Decimal) or not value.is_finite() or value <= 0
-        for value in prices
-    ):
-        raise AllocationSelfFinancingError(
-            "평가가격은 양의 유한한 Decimal이어야 합니다."
-        )
-    try:
-        stock_values = tuple(
-            context.multiply(quantity, price)
-            for quantity, price in zip(quantities, prices, strict=True)
-        )
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "수량과 가격으로 유한한 종목가치를 계산하지 못했습니다."
-        ) from None
-    return stock_values, _accumulate_stock_values(stock_values, context)
-
-
-def _value_target_holdings(
-    target: AllocationTarget,
-    desired_values: tuple[Decimal, ...],
-    prices: tuple[Decimal, ...],
-    post_trade_nav: Decimal,
-    context: Context,
-) -> tuple[tuple[Decimal, ...], tuple[Decimal, ...], Decimal]:
-    if len(desired_values) != len(prices):
-        raise AllocationSelfFinancingError(
-            "목표가치와 체결가격의 종목 수가 일치하지 않습니다."
-        )
-    if any(
-        not isinstance(value, Decimal) or not value.is_finite() or value < 0
-        for value in desired_values
-    ):
-        raise AllocationSelfFinancingError(
-            "목표 종목가치는 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    if any(
-        not isinstance(value, Decimal) or not value.is_finite() or value <= 0
-        for value in prices
-    ):
-        raise AllocationSelfFinancingError(
-            "체결가격은 양의 유한한 Decimal이어야 합니다."
-        )
-    try:
-        stock_budget = context.multiply(target.target_equity_weight, post_trade_nav)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "목표 종목가치 합계를 유한한 Decimal로 계산하지 못했습니다."
-        ) from None
-    if not stock_budget.is_finite() or stock_budget < 0:
-        raise AllocationSelfFinancingError("목표 종목가치 합계가 올바르지 않습니다.")
-
-    if target.target_equity_weight != _ONE:
-        quantity_values = tuple(
-            _target_quantity_value(value, price, context)
-            for value, price in zip(desired_values, prices, strict=True)
-        )
-        quantities = tuple(value[0] for value in quantity_values)
-        actual_values = tuple(value[1] for value in quantity_values)
-        actual_total = _accumulate_stock_values(actual_values, context)
-        return quantities, actual_values, actual_total
-
-    anchor_index = next(
-        (
-            index
-            for index in range(len(target.target_weights) - 1, -1, -1)
-            if target.target_weights[index] > 0
-        ),
-        None,
-    )
-    if anchor_index is None:
-        raise AllocationSelfFinancingError("목표가치 잔차를 대사할 양수 종목비중이 없습니다.")
-
-    anchored_quantities = [_ZERO for _ in desired_values]
-    anchored_values = [_ZERO for _ in desired_values]
-    other_total = _ZERO
-    try:
-        # The last positive target is the deterministic quantity anchor. Values
-        # after it are target-zero, so the running total stays in stock order.
-        for index, (desired_value, price) in enumerate(
-            zip(
-                desired_values[:anchor_index],
-                prices[:anchor_index],
-                strict=True,
-            )
-        ):
-            quantity, actual_value = _target_quantity_value(
-                desired_value,
-                price,
-                context,
-            )
-            anchored_quantities[index] = quantity
-            anchored_values[index] = actual_value
-            other_total = context.add(other_total, actual_value)
-
-        anchor_notional = context.subtract(stock_budget, other_total)
-        if not anchor_notional.is_finite() or anchor_notional < 0:
-            raise AllocationSelfFinancingError(
-                "실제 종목가치 잔차를 비음수로 대사할 수 없습니다."
-            )
-        anchor_quantity, anchor_value = _target_quantity_value(
-            anchor_notional,
-            prices[anchor_index],
-            context,
-        )
-        anchored_quantities[anchor_index] = anchor_quantity
-        anchored_values[anchor_index] = anchor_value
-        actual_total = context.add(other_total, anchor_value)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "실제 종목가치를 유한한 Decimal로 대사하지 못했습니다."
-        ) from None
-    if not actual_total.is_finite() or actual_total < 0:
-        raise AllocationSelfFinancingError(
-            "실제 종목가치 합계가 올바르지 않습니다."
-        )
-    return tuple(anchored_quantities), tuple(anchored_values), actual_total
-
-
-def _target_quantity_value(
-    desired_value: Decimal,
-    price: Decimal,
-    context: Context,
-) -> tuple[Decimal, Decimal]:
-    operation_context = context.copy()
-    operation_context.clear_flags()
-    try:
-        quantity = operation_context.divide(desired_value, price)
-        actual_value = operation_context.multiply(quantity, price)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "목표가치를 유한한 연속수량·종목가치로 변환하지 못했습니다."
-        ) from None
-    if operation_context.flags[Underflow] or operation_context.flags[Subnormal]:
-        raise AllocationSelfFinancingError(
-            "목표수량·종목가치 계산에서 Decimal underflow가 발생했습니다."
-        )
-    if not quantity.is_finite() or quantity < 0:
-        raise AllocationSelfFinancingError(
-            "목표수량은 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    if not actual_value.is_finite() or actual_value < 0:
-        raise AllocationSelfFinancingError(
-            "실제 종목가치는 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    if desired_value > 0 and (quantity == _ZERO or actual_value == _ZERO):
-        raise AllocationSelfFinancingError(
-            "양수 목표 종목가치를 0이 아닌 수량·종목가치로 표현하지 못했습니다."
-        )
-    return quantity, actual_value
-
-
-def _accumulate_stock_values(
-    stock_values: tuple[Decimal, ...],
-    context: Context,
-) -> Decimal:
-    total = _ZERO
-    for value in stock_values:
-        if not isinstance(value, Decimal) or not value.is_finite() or value < 0:
-            raise AllocationSelfFinancingError(
-                "종목가치는 0 이상의 유한한 Decimal이어야 합니다."
-            )
-        try:
-            total = context.add(total, value)
-        except DecimalException:
-            raise AllocationSelfFinancingError(
-                "종목가치 합계를 유한한 Decimal로 계산하지 못했습니다."
-            ) from None
-    if not total.is_finite() or total < 0:
-        raise AllocationSelfFinancingError(
-            "종목가치 합계는 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    return total
-
-
-def _nav_ulp(nav: Decimal, context: Context) -> Decimal:
-    if not isinstance(nav, Decimal) or not nav.is_finite() or nav <= 0:
-        raise AllocationSelfFinancingError(
-            "Decimal ULP 계산 기준 NAV는 양의 유한한 값이어야 합니다."
-        )
-    try:
-        # This is the adjacent representable spacing at NAV in the same fixed
-        # context as the accounting engine, not an absolute tolerance.
-        next_nav = context.next_plus(nav)
-        ulp = context.subtract(next_nav, nav)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "Decimal ULP를 유한한 값으로 계산하지 못했습니다."
-        ) from None
-    if not next_nav.is_finite() or not ulp.is_finite() or ulp <= 0:
-        raise AllocationSelfFinancingError(
-            "Decimal ULP를 양의 유한한 값으로 계산하지 못했습니다."
-        )
-    return ulp
-
-
-def _decimal_gap(left: Decimal, right: Decimal, context: Context) -> Decimal:
-    try:
-        gap = context.copy_abs(context.subtract(left, right))
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "Decimal 표현 차이를 유한한 값으로 계산하지 못했습니다."
-        ) from None
-    if not gap.is_finite():
-        raise AllocationSelfFinancingError("Decimal 표현 차이는 유한해야 합니다.")
-    return gap
-
-
-def _realized_weights(
-    stock_values: tuple[Decimal, ...],
-    stock_value_total: Decimal,
-    cash_value: Decimal,
-    nav: Decimal,
-    context: Context,
-) -> tuple[tuple[Decimal, ...], Decimal]:
-    if not stock_values:
-        raise AllocationSelfFinancingError("실현비중 계산에는 종목가치가 필요합니다.")
-    if any(
-        not isinstance(value, Decimal) or not value.is_finite() or value < 0
-        for value in stock_values
-    ):
-        raise AllocationSelfFinancingError(
-            "실현비중 계산의 종목가치는 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    if (
-        not isinstance(stock_value_total, Decimal)
-        or not stock_value_total.is_finite()
-        or stock_value_total < 0
-        or any(value > stock_value_total for value in stock_values)
-    ):
-        raise AllocationSelfFinancingError(
-            "실현비중 계산의 종목가치 합계가 올바르지 않습니다."
-        )
-    if not isinstance(cash_value, Decimal) or not cash_value.is_finite() or cash_value < 0:
-        raise AllocationSelfFinancingError(
-            "실현비중 계산의 실제 현금은 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    if not isinstance(nav, Decimal) or not nav.is_finite() or nav <= 0:
-        raise AllocationSelfFinancingError(
-            "실현비중 계산의 NAV는 양의 유한한 Decimal이어야 합니다."
-        )
-    try:
-        recombined_nav = context.add(stock_value_total, cash_value)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "실현비중 계산의 주식가치·현금·NAV를 유한하게 대사하지 못했습니다."
-        ) from None
-    if not recombined_nav.is_finite():
-        raise AllocationSelfFinancingError(
-            "실현비중 계산의 주식가치·현금·NAV 대사값이 유한하지 않습니다."
-        )
-    nav_residual = _decimal_gap(recombined_nav, nav, context)
-    if nav_residual > _nav_ulp(nav, context):
-        raise AllocationSelfFinancingError(
-            "실현비중 계산의 주식가치·현금·NAV 불일치가 1 Decimal ULP를 초과합니다."
-        )
-    try:
-        weights = tuple(context.divide(value, nav) for value in stock_values)
-        weight_total = _ZERO
-        for weight in weights:
-            weight_total = context.add(weight_total, weight)
-        cash_weight = context.subtract(_ONE, weight_total)
-        exact_weight_total = context.add(weight_total, cash_weight)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "실현비중을 유한한 Decimal로 계산하지 못했습니다."
-        ) from None
-    if (
-        all(weight.is_finite() and weight >= 0 for weight in weights)
-        and cash_weight.is_finite()
-        and cash_weight >= 0
-        and exact_weight_total == _ONE
-    ):
-        return weights, cash_weight
-
-    try:
-        actual_cash_weight = context.divide(cash_value, nav)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "실현 현금비중을 유한한 Decimal로 계산하지 못했습니다."
-        ) from None
-    if not actual_cash_weight.is_finite() or actual_cash_weight < 0:
-        raise AllocationSelfFinancingError(
-            "실현 현금비중은 0 이상의 유한한 Decimal이어야 합니다."
-        )
-    anchor_index = next(
-        (index for index in range(len(stock_values) - 1, -1, -1) if stock_values[index] > 0),
-        None,
-    )
-    if anchor_index is None:
-        raise AllocationSelfFinancingError(
-            "실현비중 Decimal 잔차를 대사할 양수 주식가치가 없습니다."
-        )
-    try:
-        other_weight = _ZERO
-        for weight in weights[:anchor_index]:
-            other_weight = context.add(other_weight, weight)
-        anchor_weight = context.subtract(
-            context.subtract(_ONE, actual_cash_weight),
-            other_weight,
-        )
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "실현비중 Decimal 잔차를 유한하게 대사하지 못했습니다."
-        ) from None
-    if not anchor_weight.is_finite() or anchor_weight < 0:
-        raise AllocationSelfFinancingError(
-            "실현비중 Decimal 잔차를 비음수 종목비중으로 대사할 수 없습니다."
-        )
-    reconciled = list(weights)
-    reconciled[anchor_index] = anchor_weight
-    reconciled_tuple = tuple(reconciled)
-    try:
-        reconciled_total = _ZERO
-        for weight in reconciled_tuple:
-            reconciled_total = context.add(reconciled_total, weight)
-        exact_total = context.add(reconciled_total, actual_cash_weight)
-    except DecimalException:
-        raise AllocationSelfFinancingError(
-            "실현비중 Decimal 잔차 대사 결과를 검증하지 못했습니다."
-        ) from None
-    if exact_total != _ONE:
-        raise AllocationSelfFinancingError(
-            "실현 주식비중과 현금비중 합계를 정확히 1로 대사하지 못했습니다."
-        )
-    return reconciled_tuple, actual_cash_weight
+    return transition.quantities_after, transition.cash_after, record
 
 
 def _nav_returns(
