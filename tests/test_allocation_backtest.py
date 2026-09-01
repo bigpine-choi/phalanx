@@ -15,6 +15,7 @@ from decimal import (
 import pytest
 
 import phalanx.portfolio.allocation_backtest as allocation_backtest_module
+import phalanx.portfolio.self_financing as self_financing_module
 from phalanx.domain import (
     AlignedPricePanel,
     AllocationBacktestConfig,
@@ -386,7 +387,7 @@ def test_fully_invested_realized_weights_reconcile_decimal_division_residual() -
         independently_divided = tuple(value / nav for value in stock_values)
         assert Decimal(1) - sum(independently_divided, Decimal(0)) == Decimal("-1E-49")
 
-        weights, cash_weight = allocation_backtest_module._realized_weights(
+        weights, cash_weight = self_financing_module._realized_weights(
             stock_values,
             nav,
             Decimal(0),
@@ -408,7 +409,7 @@ def test_fully_invested_residual_anchor_skips_a_zero_weight_last_asset() -> None
     with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
         nav = sum(stock_values, Decimal(0))
 
-        weights, cash_weight = allocation_backtest_module._realized_weights(
+        weights, cash_weight = self_financing_module._realized_weights(
             stock_values,
             nav,
             Decimal(0),
@@ -500,10 +501,22 @@ def test_asymmetric_costs_reconcile_self_financing_and_leave_nonnegative_cash() 
 def test_fast_iewma_15_percent_decimal_ulp_reconciles_through_public_dynamic_path() -> None:
     result, panel, scalar = _run_reconciliation_regression(Decimal("0.15"))
     second = result.rebalances[1]
+    kernel_transition = self_financing_module.apply_fractional_self_financing_transition(
+        self_financing_module.SelfFinancingTransitionInput(
+            current_quantities=_RECONCILIATION_PRE_TRADE_QUANTITIES,
+            cash_before=_RECONCILIATION_CASH_BEFORE,
+            valuation_prices=panel.open_prices[2],
+            target_weights=second.target.target_weights,
+            target_equity_weight=second.target.target_equity_weight,
+            buy_cost_rate=Decimal("0.001"),
+            sell_cost_rate=Decimal("0.0025"),
+        )
+    )
 
     with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)) as context:
-        desired_values = allocation_backtest_module._desired_values(
-            second.target,
+        desired_values = self_financing_module._desired_values(
+            second.target.target_weights,
+            second.target.target_equity_weight,
             second.post_trade_nav,
         )
         quantities = tuple(
@@ -522,6 +535,10 @@ def test_fast_iewma_15_percent_decimal_ulp_reconciles_through_public_dynamic_pat
                 panel.open_prices[2],
                 strict=True,
             )
+        )
+        expected_buys, expected_sells = self_financing_module._trade_notionals(
+            pre_trade_values,
+            desired_values,
         )
         recombined_nav = actual_stock_total + second.cash_after
         nav_ulp = context.next_plus(second.post_trade_nav) - second.post_trade_nav
@@ -556,6 +573,145 @@ def test_fast_iewma_15_percent_decimal_ulp_reconciles_through_public_dynamic_pat
     assert second.buy_gross_turnover > 0
     assert second.sell_gross_turnover > 0
     assert exact_weight_total == Decimal(1)
+    assert kernel_transition.pre_trade_nav == second.pre_trade_nav
+    assert kernel_transition.post_trade_nav == second.post_trade_nav
+    assert kernel_transition.quantities_after == quantities
+    assert kernel_transition.actual_values_after == actual_values
+    assert kernel_transition.actual_stock_total_after == actual_stock_total
+    assert kernel_transition.buy_notional == expected_buys
+    assert kernel_transition.sell_notional == expected_sells
+    assert kernel_transition.transaction_cost == second.transaction_cost
+    assert kernel_transition.transaction_cost_rate == second.transaction_cost_rate
+    assert kernel_transition.cash_after == second.cash_after
+    assert kernel_transition.realized_weights == second.realized_weights
+    assert kernel_transition.realized_cash_weight == second.realized_cash_weight
+    assert kernel_transition.buy_gross_turnover == second.buy_gross_turnover
+    assert kernel_transition.sell_gross_turnover == second.sell_gross_turnover
+
+
+def test_existing_backtest_preserves_context_rounded_target_residual_behavior() -> None:
+    panel = _panel(
+        (
+            (Decimal(1), Decimal(1)),
+            (Decimal(1), Decimal(1)),
+        )
+    )
+    config = AllocationBacktestConfig(
+        minimum_training_returns=1,
+        maximum_training_returns=1,
+        rebalance_interval=1,
+        target_equity_weight=Decimal(1),
+        buy_cost_rate=Decimal(0),
+        sell_cost_rate=Decimal(0),
+    )
+    with localcontext(Context(prec=2, rounding=ROUND_HALF_EVEN)):
+        target = AllocationTarget(
+            signal_date=panel.dates[0],
+            stock_codes=panel.stock_codes,
+            target_weights=(Decimal("0.444"), Decimal("0.555")),
+            policy_id="rounded_target",
+            target_equity_weight=Decimal(1),
+        )
+
+    result = run_allocation_backtest_with_targets(
+        panel,
+        "rounded_target",
+        (ScheduledAllocationTarget(execution_index=1, target=target),),
+        config,
+    )
+
+    assert result.rebalances[0].target.target_weights == (
+        Decimal("0.444"),
+        Decimal("0.555"),
+    )
+    assert result.rebalances[0].realized_weights == (
+        Decimal("0.444"),
+        Decimal("0.556"),
+    )
+    assert result.rebalances[0].realized_cash_weight == Decimal(0)
+
+
+def test_existing_backtest_preserves_raw_zero_final_weight_anchor() -> None:
+    panel = _panel(
+        (
+            (Decimal(1), Decimal(1)),
+            (Decimal(1), Decimal(1)),
+        )
+    )
+    config = AllocationBacktestConfig(
+        minimum_training_returns=1,
+        maximum_training_returns=1,
+        rebalance_interval=1,
+        target_equity_weight=Decimal(1),
+        buy_cost_rate=Decimal(0),
+        sell_cost_rate=Decimal(0),
+    )
+    with localcontext(Context(prec=2, rounding=ROUND_HALF_EVEN)):
+        target = AllocationTarget(
+            signal_date=panel.dates[0],
+            stock_codes=panel.stock_codes,
+            target_weights=(Decimal("0.996"), Decimal(0)),
+            policy_id="raw_zero_anchor",
+            target_equity_weight=Decimal(1),
+        )
+
+    result = run_allocation_backtest_with_targets(
+        panel,
+        "raw_zero_anchor",
+        (ScheduledAllocationTarget(execution_index=1, target=target),),
+        config,
+    )
+    record = result.rebalances[0]
+
+    assert record.target.target_weights == (Decimal("0.996"), Decimal(0))
+    assert record.realized_weights == (Decimal(1), Decimal(0))
+    assert record.realized_cash_weight == Decimal(0)
+    assert record.pre_trade_nav == Decimal(1)
+    assert record.post_trade_nav == Decimal(1)
+    assert record.cash_after == Decimal(0)
+    assert record.buy_gross_turnover == Decimal(1)
+    assert record.sell_gross_turnover == Decimal(0)
+    assert record.transaction_cost == Decimal(0)
+    assert record.transaction_cost_rate == Decimal(0)
+    assert result.net_asset_values == (Decimal(1),)
+
+
+def test_existing_backtest_preserves_legacy_error_precedence_before_residual_check() -> None:
+    panel = _panel(
+        (
+            (Decimal(1), Decimal(1)),
+            (Decimal(1), Decimal(1)),
+        )
+    )
+    config = AllocationBacktestConfig(
+        minimum_training_returns=1,
+        maximum_training_returns=1,
+        rebalance_interval=1,
+        target_equity_weight=Decimal(1),
+        buy_cost_rate=Decimal("0.999"),
+        sell_cost_rate=Decimal(0),
+    )
+    with localcontext(Context(prec=2, rounding=ROUND_HALF_EVEN)):
+        target = AllocationTarget(
+            signal_date=panel.dates[0],
+            stock_codes=panel.stock_codes,
+            target_weights=(Decimal("1.004"), Decimal(0)),
+            policy_id="legacy_error_precedence",
+            target_equity_weight=Decimal(1),
+        )
+
+    with pytest.raises(AllocationSelfFinancingError) as caught:
+        run_allocation_backtest_with_targets(
+            panel,
+            "legacy_error_precedence",
+            (ScheduledAllocationTarget(execution_index=1, target=target),),
+            config,
+        )
+
+    assert str(caught.value) == (
+        "거래비용 차감 후 NAV가 0 이하이므로 자기금융 체결이 불가능합니다."
+    )
+    assert caught.value.as_of_date == panel.dates[0]
 
 
 @pytest.mark.parametrize(
@@ -594,8 +750,9 @@ def test_existing_fast_iewma_higher_target_solver_and_cost_golden_remain_unchang
     result, panel, scalar = _run_reconciliation_regression(target_volatility)
     second = result.rebalances[1]
     with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
-        desired_values = allocation_backtest_module._desired_values(
-            second.target,
+        desired_values = self_financing_module._desired_values(
+            second.target.target_weights,
+            second.target.target_equity_weight,
             second.post_trade_nav,
         )
         actual_stock_total = sum(
@@ -633,8 +790,9 @@ def test_fast_iewma_reconciliation_with_zero_cost_preserves_nav_and_cash_flow() 
     second = result.rebalances[1]
 
     with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
-        desired_values = allocation_backtest_module._desired_values(
-            second.target,
+        desired_values = self_financing_module._desired_values(
+            second.target.target_weights,
+            second.target.target_equity_weight,
             second.post_trade_nav,
         )
         quantities = tuple(
@@ -676,7 +834,7 @@ def test_realized_weight_nav_reconciliation_accepts_one_ulp_and_rejects_two() ->
         stock_values = (Decimal("0.2"),)
         stock_total = stock_values[0]
         one_ulp_cash = context.next_plus(nav) - stock_total
-        weights, cash_weight = allocation_backtest_module._realized_weights(
+        weights, cash_weight = self_financing_module._realized_weights(
             stock_values,
             stock_total,
             one_ulp_cash,
@@ -686,7 +844,7 @@ def test_realized_weight_nav_reconciliation_accepts_one_ulp_and_rejects_two() ->
         two_ulp_cash = context.next_plus(context.next_plus(nav)) - stock_total
 
         with pytest.raises(AllocationSelfFinancingError, match="1 Decimal ULP"):
-            allocation_backtest_module._realized_weights(
+            self_financing_module._realized_weights(
                 stock_values,
                 stock_total,
                 two_ulp_cash,
@@ -718,7 +876,7 @@ def test_realized_weight_reconciliation_rejects_negative_or_nonfinite_values(
     context = Context(prec=50, rounding=ROUND_HALF_EVEN)
 
     with pytest.raises(AllocationSelfFinancingError):
-        allocation_backtest_module._realized_weights(
+        self_financing_module._realized_weights(
             stock_values,
             stock_total,
             cash,
@@ -731,7 +889,7 @@ def test_nav_ulp_calculation_fails_closed_when_next_value_is_infinite() -> None:
     context = Context(prec=2, rounding=ROUND_HALF_EVEN, Emax=1, Emin=-1)
 
     with pytest.raises(AllocationSelfFinancingError, match=r"ULP.*양의 유한"):
-        allocation_backtest_module._nav_ulp(Decimal("99"), context)
+        self_financing_module._nav_ulp(Decimal("99"), context)
 
 
 def test_target_value_underflow_is_rejected_before_phantom_holdings_can_succeed() -> None:
@@ -750,7 +908,7 @@ def test_target_value_underflow_is_rejected_before_phantom_holdings_can_succeed(
         target_equity_weight=Decimal("0.8"),
     )
 
-    with pytest.raises(AllocationSelfFinancingError, match="underflow"):
+    with pytest.raises(AllocationSelfFinancingError, match="underflow") as caught:
         run_allocation_backtest_with_dynamic_targets(
             panel,
             "underflow_probe",
@@ -758,6 +916,11 @@ def test_target_value_underflow_is_rejected_before_phantom_holdings_can_succeed(
             AllocationBacktestConfig(),
             annual_cash_yield=Decimal(0),
         )
+
+    assert caught.value.as_of_date == panel.dates[0]
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+    assert caught.value.__suppress_context__ is False
 
 
 def test_self_financing_failure_carries_the_failing_signal_date(
