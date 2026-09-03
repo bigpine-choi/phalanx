@@ -39,21 +39,31 @@ from phalanx.kis.errors import (
     TokenCacheError,
 )
 from phalanx.kis.market_data_client import (
+    KIS_CURRENT_PRICE_PATH,
+    KIS_CURRENT_PRICE_TR_ID,
+    KIS_CURRENT_PRICE_URL,
     KIS_DAILY_PRICE_PATH,
     KIS_DAILY_PRICE_TR_ID,
     KIS_DAILY_PRICE_URL,
+    KisCurrentPriceClient,
     KisDailyPriceClient,
     KisRateLimitCallback,
     KisRateLimitNotification,
     KisRequestPacer,
 )
-from phalanx.kis.market_data_parsing import parse_daily_bars_page
+from phalanx.kis.market_data_parsing import (
+    parse_current_price_observation,
+    parse_daily_bars_page,
+)
 from phalanx.kis.parsing import ParsedBalancePage, parse_balance_page, parse_optional_decimal
 
 __all__ = [
     "KIS_BALANCE_PATH",
     "KIS_BALANCE_TR_ID",
     "KIS_BALANCE_URL",
+    "KIS_CURRENT_PRICE_PATH",
+    "KIS_CURRENT_PRICE_TR_ID",
+    "KIS_CURRENT_PRICE_URL",
     "KIS_DAILY_PRICE_PATH",
     "KIS_DAILY_PRICE_TR_ID",
     "KIS_DAILY_PRICE_URL",
@@ -73,6 +83,7 @@ __all__ = [
     "KisBalanceParsingError",
     "KisBalanceProtocolError",
     "KisBalanceTimeoutError",
+    "KisCurrentPriceClient",
     "KisDailyPriceClient",
     "KisHttpError",
     "KisMarketDataApiError",
@@ -95,6 +106,7 @@ __all__ = [
     "ParsedBalancePage",
     "TokenCacheError",
     "parse_balance_page",
+    "parse_current_price_observation",
     "parse_daily_bars_page",
     "parse_optional_decimal",
 ]

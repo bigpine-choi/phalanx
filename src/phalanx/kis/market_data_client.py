@@ -1,30 +1,40 @@
-"""Read-only KIS domestic-stock adjusted daily-price retrieval."""
+"""Read-only KIS domestic-stock current and adjusted daily-price retrieval."""
 
 from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Protocol
 
 import httpx
 
 from phalanx.config import KisCredentials
-from phalanx.domain import DailyBar
+from phalanx.domain import CurrentPriceMarket, CurrentPriceObservation, DailyBar
 from phalanx.kis.auth import KIS_REAL_BASE_URL, AccessToken
 from phalanx.kis.errors import (
     KisAuthError,
+    KisMarketDataApiError,
     KisMarketDataAuthenticationError,
     KisMarketDataHttpError,
     KisMarketDataProtocolError,
     KisMarketDataRateLimitError,
     KisMarketDataTimeoutError,
 )
-from phalanx.kis.market_data_parsing import parse_daily_bars_page
+from phalanx.kis.market_data_parsing import (
+    parse_current_price_observation,
+    parse_daily_bars_page,
+)
+from phalanx.market_data.errors import (
+    InvalidMarketDataStockCodeError,
+    InvalidValuationPriceRequestError,
+    UnsupportedCurrentPriceMarketError,
+)
 from phalanx.market_data.validation import (
     validate_daily_date_range,
     validate_market_data_stock_code,
@@ -33,6 +43,12 @@ from phalanx.market_data.validation import (
 KIS_DAILY_PRICE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
 KIS_DAILY_PRICE_URL = f"{KIS_REAL_BASE_URL}{KIS_DAILY_PRICE_PATH}"
 KIS_DAILY_PRICE_TR_ID = "FHKST03010100"
+
+# Official sample pinned at b4e6249714418aa57833d1cbbbced39cbcc5b125:
+# https://github.com/koreainvestment/open-trading-api/blob/b4e6249714418aa57833d1cbbbced39cbcc5b125/examples_llm/domestic_stock/inquire_price/inquire_price.py
+KIS_CURRENT_PRICE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
+KIS_CURRENT_PRICE_URL = f"{KIS_REAL_BASE_URL}{KIS_CURRENT_PRICE_PATH}"
+KIS_CURRENT_PRICE_TR_ID = "FHKST01010100"
 
 _CUSTOMER_TYPE = "P"
 _DEFAULT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -44,6 +60,15 @@ _DEFAULT_RATE_LIMIT_MAX_RETRIES = 3
 _RATE_LIMIT_MESSAGE_CODE = "EGW00201"
 _TOKEN_EXPIRED_MESSAGE_CODES = frozenset({"EGW00123"})
 _MAX_ERROR_FIELD_CHARACTERS = 500
+_CURRENT_PRICE_MAX_ATTEMPTS = 3
+_CURRENT_PRICE_MESSAGE_CODE_PATTERN = re.compile(r"^[A-Z0-9_]{1,32}$")
+_OMITTED_ERROR_FIELD = "[OMITTED]"
+
+Clock = Callable[[], datetime]
+
+
+def _utc_now() -> datetime:
+    return datetime.now(tz=UTC)
 
 
 class _TokenManager(Protocol):
@@ -60,6 +85,12 @@ class _KisErrorMetadata:
     rt_cd: str | None = None
     msg_cd: str | None = None
     msg1: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _KisCurrentPriceEnvelope:
+    rt_cd: str
+    msg_cd: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +138,362 @@ class KisRequestPacer:
                 self._sleep(remaining)
                 now = self._monotonic()
         self._last_request_at = now
+
+
+class KisCurrentPriceClient:
+    """Fetch one KRX current-price observation through the fixed KIS REST API.
+
+    An injected ``httpx.Client`` remains owned by its caller. When no client is
+    injected, a short-lived client is closed around the complete operation.
+    """
+
+    def __init__(
+        self,
+        credentials: KisCredentials,
+        token_manager: _TokenManager,
+        *,
+        client: httpx.Client | None = None,
+        timeout: httpx.Timeout | float = _DEFAULT_TIMEOUT,
+        clock: Clock = _utc_now,
+        sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+        request_interval_seconds: float = _DEFAULT_REQUEST_INTERVAL_SECONDS,
+        request_pacer: KisRequestPacer | None = None,
+        rate_limit_wait_seconds: float = _DEFAULT_RATE_LIMIT_WAIT_SECONDS,
+        rate_limit_callback: KisRateLimitCallback | None = None,
+    ) -> None:
+        if not callable(clock):
+            raise TypeError("clock must be callable")
+        if not callable(sleep):
+            raise TypeError("sleep must be callable")
+        if rate_limit_callback is not None and not callable(rate_limit_callback):
+            raise TypeError("rate_limit_callback must be callable")
+        self._credentials = credentials
+        self._token_manager = token_manager
+        self._client = client
+        self._timeout = timeout
+        self._clock = clock
+        self._sleep = sleep
+        self._request_pacer = request_pacer or KisRequestPacer(
+            minimum_interval_seconds=request_interval_seconds,
+            monotonic=monotonic,
+            sleep=sleep,
+        )
+        self._rate_limit_wait_seconds = _validate_wait_seconds(
+            "rate_limit_wait_seconds",
+            rate_limit_wait_seconds,
+        )
+        self._rate_limit_callback = rate_limit_callback
+
+    def fetch_current_price(
+        self,
+        stock_code: str,
+        market: CurrentPriceMarket,
+    ) -> CurrentPriceObservation:
+        """Fetch one exact current price, failing closed outside the KRX contract."""
+
+        if type(stock_code) is not str:
+            raise InvalidMarketDataStockCodeError(
+                "Current-price stock_code must be exactly six ASCII digits."
+            )
+        validated_code = validate_market_data_stock_code(stock_code)
+        if type(market) is not CurrentPriceMarket:
+            raise InvalidValuationPriceRequestError("market must be a CurrentPriceMarket instance.")
+        if market is not CurrentPriceMarket.KRX:
+            raise UnsupportedCurrentPriceMarketError(market)
+        if self._client is not None and self._client.params:
+            raise KisMarketDataProtocolError(
+                "The injected KIS current-price client must not define default query parameters."
+            )
+
+        request_started_at = self._now("current-price request start")
+        if self._client is not None:
+            return self._fetch_observation(
+                self._client,
+                stock_code=validated_code,
+                market=market,
+                request_started_at=request_started_at,
+            )
+        with httpx.Client() as client:
+            return self._fetch_observation(
+                client,
+                stock_code=validated_code,
+                market=market,
+                request_started_at=request_started_at,
+            )
+
+    def _fetch_observation(
+        self,
+        client: httpx.Client,
+        *,
+        stock_code: str,
+        market: CurrentPriceMarket,
+        request_started_at: datetime,
+    ) -> CurrentPriceObservation:
+        authentication_retry_used = False
+
+        for attempt_number in range(1, _CURRENT_PRICE_MAX_ATTEMPTS + 1):
+            token = self._get_access_token()
+            response = self._send_request(client, token=token, stock_code=stock_code)
+            response_body = response.content
+            response_received_at = self._now("current-price response receipt")
+
+            if response.status_code == 401:
+                authentication_retry_used = self._retry_authentication_or_raise(
+                    token=token,
+                    authentication_retry_used=authentication_retry_used,
+                    attempt_number=attempt_number,
+                    message=(
+                        "The KIS current-price request remained unauthorized after "
+                        "bounded reauthentication."
+                    ),
+                )
+                continue
+
+            is_success = 200 <= response.status_code < 300
+            payload = (
+                self._decode_json(response_body)
+                if is_success
+                else self._try_decode_json(response_body)
+            )
+            envelope = self._parse_envelope(payload, required=is_success)
+
+            if self._is_expired_token_response(envelope):
+                authentication_retry_used = self._retry_authentication_or_raise(
+                    token=token,
+                    authentication_retry_used=authentication_retry_used,
+                    attempt_number=attempt_number,
+                    message=(
+                        "KIS rejected the current-price token after bounded reauthentication."
+                    ),
+                )
+                continue
+
+            if self._is_rate_limit_response(envelope):
+                if attempt_number >= _CURRENT_PRICE_MAX_ATTEMPTS:
+                    raise KisMarketDataRateLimitError(
+                        self._format_http_error(
+                            "The KIS current-price rate-limit retry limit was exhausted",
+                            response.status_code,
+                            envelope,
+                            token,
+                        )
+                    )
+                if self._rate_limit_callback is not None:
+                    self._rate_limit_callback(
+                        KisRateLimitNotification(
+                            stock_code=stock_code,
+                            attempt_number=attempt_number,
+                            max_attempts=_CURRENT_PRICE_MAX_ATTEMPTS,
+                            wait_seconds=self._rate_limit_wait_seconds,
+                        )
+                    )
+                self._sleep(self._rate_limit_wait_seconds)
+                continue
+
+            if not is_success:
+                raise KisMarketDataHttpError(
+                    self._format_http_error(
+                        "The KIS current-price request failed",
+                        response.status_code,
+                        envelope,
+                        token,
+                    )
+                )
+
+            if envelope is None:
+                raise AssertionError("a successful current-price response must have an envelope")
+            if envelope.rt_cd != "0":
+                raise KisMarketDataApiError(
+                    rt_cd="non-success",
+                    msg_cd=_safe_current_price_message_code(
+                        envelope.msg_cd,
+                        self._sensitive_values(token),
+                    ),
+                    msg1="Provider message omitted.",
+                )
+
+            if response_received_at.astimezone(UTC) < request_started_at.astimezone(UTC):
+                raise KisMarketDataProtocolError(
+                    "The current-price response receipt preceded the request start."
+                )
+
+            return parse_current_price_observation(
+                payload,
+                stock_code=stock_code,
+                market=market,
+                request_started_at=request_started_at,
+                received_at=response_received_at,
+            )
+
+        raise AssertionError("the bounded current-price retry loop did not terminate")
+
+    def _send_request(
+        self,
+        client: httpx.Client,
+        *,
+        token: AccessToken,
+        stock_code: str,
+    ) -> httpx.Response:
+        headers = {
+            "authorization": f"Bearer {token.access_token.get_secret_value()}",
+            "appkey": self._credentials.app_key.get_secret_value(),
+            "appsecret": self._credentials.app_secret.get_secret_value(),
+            "tr_id": KIS_CURRENT_PRICE_TR_ID,
+            "custtype": _CUSTOMER_TYPE,
+        }
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_INPUT_ISCD": stock_code,
+        }
+        failure: KisMarketDataHttpError
+        try:
+            self._request_pacer.wait_before_request()
+            response = client.get(
+                KIS_CURRENT_PRICE_URL,
+                headers=headers,
+                params=params,
+                timeout=self._timeout,
+                follow_redirects=False,
+            )
+        except httpx.TimeoutException:
+            failure = KisMarketDataTimeoutError("The KIS current-price request timed out.")
+        except httpx.HTTPError:
+            failure = KisMarketDataHttpError(
+                "The KIS current-price request failed before a response was received."
+            )
+        else:
+            return response
+        raise failure
+
+    def _retry_authentication_or_raise(
+        self,
+        *,
+        token: AccessToken,
+        authentication_retry_used: bool,
+        attempt_number: int,
+        message: str,
+    ) -> bool:
+        if authentication_retry_used or attempt_number >= _CURRENT_PRICE_MAX_ATTEMPTS:
+            raise KisMarketDataAuthenticationError(message)
+        self._invalidate_token(token)
+        return True
+
+    def _get_access_token(self) -> AccessToken:
+        failure: KisMarketDataAuthenticationError
+        try:
+            token = self._token_manager.get_access_token()
+        except KisAuthError:
+            failure = KisMarketDataAuthenticationError(
+                "A KIS access token could not be obtained safely for current-price data."
+            )
+        else:
+            return token
+        raise failure
+
+    def _invalidate_token(self, token: AccessToken) -> None:
+        failure: KisMarketDataAuthenticationError
+        try:
+            self._token_manager.invalidate_if_current(token)
+        except KisAuthError:
+            failure = KisMarketDataAuthenticationError(
+                "The rejected current-price token could not be invalidated safely."
+            )
+        else:
+            return
+        raise failure
+
+    @staticmethod
+    def _decode_json(response_body: bytes) -> object:
+        failure: KisMarketDataProtocolError
+        try:
+            payload = json.loads(response_body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            failure = KisMarketDataProtocolError(
+                "The KIS current-price response was not valid JSON."
+            )
+        else:
+            return payload
+        raise failure
+
+    @staticmethod
+    def _try_decode_json(response_body: bytes) -> object | None:
+        try:
+            decoded: object = json.loads(response_body)
+            return decoded
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+
+    @staticmethod
+    def _parse_envelope(
+        payload: object | None,
+        *,
+        required: bool,
+    ) -> _KisCurrentPriceEnvelope | None:
+        if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
+            if required:
+                raise KisMarketDataProtocolError(
+                    "The KIS current-price response envelope was invalid."
+                )
+            return None
+        rt_cd = payload.get("rt_cd")
+        msg_cd = payload.get("msg_cd")
+        if (
+            not isinstance(rt_cd, str)
+            or not rt_cd.strip()
+            or not isinstance(msg_cd, str)
+            or not msg_cd.strip()
+        ):
+            if required:
+                raise KisMarketDataProtocolError(
+                    "The KIS current-price response envelope was invalid."
+                )
+            return None
+        return _KisCurrentPriceEnvelope(rt_cd=rt_cd, msg_cd=msg_cd)
+
+    @staticmethod
+    def _is_expired_token_response(envelope: _KisCurrentPriceEnvelope | None) -> bool:
+        if envelope is None or envelope.rt_cd == "0":
+            return False
+        return envelope.msg_cd in _TOKEN_EXPIRED_MESSAGE_CODES
+
+    @staticmethod
+    def _is_rate_limit_response(envelope: _KisCurrentPriceEnvelope | None) -> bool:
+        return (
+            envelope is not None
+            and envelope.rt_cd != "0"
+            and envelope.msg_cd == _RATE_LIMIT_MESSAGE_CODE
+        )
+
+    def _sensitive_values(self, token: AccessToken) -> tuple[str, ...]:
+        return (
+            self._credentials.app_key.get_secret_value(),
+            self._credentials.app_secret.get_secret_value(),
+            self._credentials.account_number.get_secret_value(),
+            self._credentials.cano,
+            token.access_token.get_secret_value(),
+        )
+
+    def _format_http_error(
+        self,
+        prefix: str,
+        status_code: int,
+        envelope: _KisCurrentPriceEnvelope | None,
+        token: AccessToken,
+    ) -> str:
+        secrets = self._sensitive_values(token)
+        suffix = (
+            f", msg_cd={_safe_current_price_message_code(envelope.msg_cd, secrets)}"
+            if envelope is not None
+            else ""
+        )
+        return f"{prefix} (HTTP {status_code}{suffix})."
+
+    def _now(self, event: str) -> datetime:
+        value = self._clock()
+        if type(value) is not datetime or value.tzinfo is None or value.utcoffset() is None:
+            raise KisMarketDataProtocolError(f"The {event} clock value must be timezone-aware.")
+        return value
 
 
 class KisDailyPriceClient:
@@ -471,6 +858,13 @@ def _sanitize_error_field(value: str, secrets: tuple[str, ...]) -> str:
     return sanitized
 
 
+def _safe_current_price_message_code(value: str, secrets: tuple[str, ...]) -> str:
+    sanitized = _sanitize_error_field(value, secrets)
+    if _CURRENT_PRICE_MESSAGE_CODE_PATTERN.fullmatch(sanitized) is None:
+        return _OMITTED_ERROR_FIELD
+    return sanitized
+
+
 def _page_fingerprint(page: tuple[DailyBar, ...]) -> PageFingerprint:
     return tuple(
         sorted(
@@ -492,9 +886,13 @@ def _sorted_bars(bars_by_date: dict[date, DailyBar]) -> tuple[DailyBar, ...]:
 
 
 __all__ = [
+    "KIS_CURRENT_PRICE_PATH",
+    "KIS_CURRENT_PRICE_TR_ID",
+    "KIS_CURRENT_PRICE_URL",
     "KIS_DAILY_PRICE_PATH",
     "KIS_DAILY_PRICE_TR_ID",
     "KIS_DAILY_PRICE_URL",
+    "KisCurrentPriceClient",
     "KisDailyPriceClient",
     "KisRateLimitCallback",
     "KisRateLimitNotification",

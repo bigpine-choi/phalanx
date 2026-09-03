@@ -1,4 +1,4 @@
-"""Strict, side-effect-free parsing for KIS domestic daily-price output2 rows."""
+"""Strict, side-effect-free parsing for KIS domestic market-data responses."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 
-from phalanx.domain import DailyBar
+from phalanx.domain import CurrentPriceMarket, CurrentPriceObservation, DailyBar
 from phalanx.kis.errors import (
     InvalidMarketDataDateError,
     InvalidMarketDataNumericFieldError,
@@ -28,8 +28,49 @@ _PRICE_FIELDS = {
 }
 _DATE_PATTERN = re.compile(r"^[0-9]{8}$")
 _DECIMAL_PATTERN = re.compile(r"^[+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)$")
+_UNSIGNED_DECIMAL_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+)?$")
 _INTEGER_PATTERN = re.compile(r"^[0-9]+$")
 _REDACTED = "[REDACTED]"
+
+
+def parse_current_price_observation(
+    payload: object,
+    *,
+    stock_code: str,
+    market: CurrentPriceMarket,
+    request_started_at: datetime,
+    received_at: datetime,
+) -> CurrentPriceObservation:
+    """Parse output fields after the client has validated the response envelope."""
+
+    response = _require_object(payload, "response")
+    if "output" not in response or response["output"] is None:
+        raise MissingMarketDataFieldError("output", "response")
+    output = _require_object(response["output"], "output")
+
+    response_stock_code = _require_current_price_stock_code(output)
+    if response_stock_code != stock_code:
+        raise InvalidMarketDataResponseStructure(
+            "stck_shrn_iscd must exactly match the requested stock code at output."
+        )
+
+    current_price = _parse_unsigned_decimal(output, "stck_prpr", "output")
+    failure: MarketDataDomainInvariantError
+    try:
+        observation = CurrentPriceObservation(
+            stock_code=stock_code,
+            current_price=current_price,
+            market=market,
+            request_started_at=request_started_at,
+            received_at=received_at,
+        )
+    except ValidationError:
+        failure = MarketDataDomainInvariantError(
+            "KIS current-price values violate CurrentPriceObservation invariants."
+        )
+    else:
+        return observation
+    raise failure
 
 
 def parse_daily_bars_page(
@@ -128,6 +169,19 @@ def _required_numeric_text(
     return value
 
 
+def _require_current_price_stock_code(record: Mapping[str, Any]) -> str:
+    field_name = "stck_shrn_iscd"
+    location = "output"
+    if field_name not in record:
+        raise MissingMarketDataFieldError(field_name, location)
+    value = record[field_name]
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise MissingMarketDataFieldError(field_name, location)
+    if not isinstance(value, str):
+        raise InvalidMarketDataResponseStructure(f"{field_name} must be a string at {location}.")
+    return value
+
+
 def _parse_trade_date(
     record: Mapping[str, Any],
     field_name: str,
@@ -153,6 +207,17 @@ def _parse_decimal(
 ) -> Decimal:
     value = _required_numeric_text(record, field_name, location)
     if _DECIMAL_PATTERN.fullmatch(value) is None:
+        raise InvalidMarketDataNumericFieldError(field_name, location)
+    return Decimal(value)
+
+
+def _parse_unsigned_decimal(
+    record: Mapping[str, Any],
+    field_name: str,
+    location: str,
+) -> Decimal:
+    value = _required_numeric_text(record, field_name, location)
+    if _UNSIGNED_DECIMAL_PATTERN.fullmatch(value) is None:
         raise InvalidMarketDataNumericFieldError(field_name, location)
     return Decimal(value)
 
@@ -185,4 +250,4 @@ def _mask_text(value: str, secrets: tuple[str, ...]) -> str:
     return masked
 
 
-__all__ = ["parse_daily_bars_page"]
+__all__ = ["parse_current_price_observation", "parse_daily_bars_page"]

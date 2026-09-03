@@ -82,11 +82,11 @@ class KisBalanceAuthenticationError(KisBalanceClientError):
 
 
 class KisMarketDataParsingError(RuntimeError):
-    """Base failure for strict domestic-stock daily-price parsing."""
+    """Base failure for strict domestic-stock market-data parsing."""
 
 
 class MissingMarketDataFieldError(KisMarketDataParsingError):
-    """A required daily-price response field was absent, null, or blank."""
+    """A required market-data response field was absent, null, or blank."""
 
     def __init__(self, field_name: str, location: str) -> None:
         self.field_name = field_name
@@ -113,7 +113,7 @@ class InvalidMarketDataNumericFieldError(KisMarketDataParsingError):
 
 
 class InvalidMarketDataResponseStructure(KisMarketDataParsingError):
-    """A decoded daily-price body did not have the documented JSON structure."""
+    """A decoded market-data body did not have the documented JSON structure."""
 
 
 class KisMarketDataApiError(KisMarketDataParsingError):
@@ -127,11 +127,11 @@ class KisMarketDataApiError(KisMarketDataParsingError):
 
 
 class MarketDataDomainInvariantError(KisMarketDataParsingError):
-    """Parsed values violated an immutable DailyBar invariant."""
+    """Parsed values violated an immutable market-data domain invariant."""
 
 
 class KisMarketDataClientError(RuntimeError):
-    """Base failure for the read-only domestic daily-price HTTP boundary."""
+    """Base failure for the read-only domestic market-data HTTP boundary."""
 
 
 class KisMarketDataHttpError(KisMarketDataClientError):
@@ -139,7 +139,7 @@ class KisMarketDataHttpError(KisMarketDataClientError):
 
 
 class KisMarketDataRateLimitError(KisMarketDataHttpError):
-    """KIS kept rejecting a market-data page after bounded rate-limit retries."""
+    """KIS kept rejecting a market-data request after bounded rate-limit retries."""
 
 
 class KisMarketDataTimeoutError(KisMarketDataHttpError):
@@ -151,4 +151,4 @@ class KisMarketDataProtocolError(KisMarketDataClientError):
 
 
 class KisMarketDataAuthenticationError(KisMarketDataClientError):
-    """A market-data page remained unauthorized after one reauthentication."""
+    """A market-data request remained unauthorized after one reauthentication."""
