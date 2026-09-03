@@ -46,7 +46,12 @@ from phalanx.domain.constrained_erc import (
     ConstrainedErcTarget,
     scenario_policy_id,
 )
-from phalanx.domain.market_data import DailyBar
+from phalanx.domain.market_data import (
+    CurrentPriceMarket,
+    CurrentPriceObservation,
+    DailyBar,
+    ValuationPriceBundle,
+)
 from phalanx.domain.performance import (
     HistoricalUniverseAnalysis,
     MonthlyReturn,
@@ -152,6 +157,8 @@ __all__ = [
     "ConstrainedErcTarget",
     "CovarianceScenario",
     "CovarianceScenarioKind",
+    "CurrentPriceMarket",
+    "CurrentPriceObservation",
     "DailyBar",
     "DownsideStressMetadata",
     "DynamicRiskModelConfig",
@@ -172,6 +179,7 @@ __all__ = [
     "RiskModelResearchTrial",
     "SnapshotEvidence",
     "StockMarket",
+    "ValuationPriceBundle",
     "VolatilityOverlayConfig",
     "VolatilityOverlayFailure",
     "VolatilityOverlayOutcomeStatus",
