@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from enum import IntEnum
 from pathlib import Path
 from statistics import median
@@ -16,7 +16,16 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from phalanx.application import AccountSnapshotResult, run_production_snapshot
+from phalanx.account_performance import (
+    AccountPerformanceError,
+    account_performance_decimal_context,
+)
+from phalanx.application import (
+    AccountPerformanceResult,
+    AccountSnapshotResult,
+    run_account_performance,
+    run_production_snapshot,
+)
 from phalanx.config import ConfigError
 from phalanx.domain import (
     CONSTRAINED_ERC_POLICY_ORDER,
@@ -84,6 +93,10 @@ from phalanx.portfolio.errors import (
     RiskModelTrialStorageError,
     VolatilityOverlayTrialStorageError,
 )
+from phalanx.portfolio.private_json_storage import (
+    PrivateJsonAlreadyExistsError,
+    PrivateJsonStorageError,
+)
 from phalanx.portfolio.volatility_overlay_trial_registry import (
     safe_volatility_overlay_failure_display,
 )
@@ -107,8 +120,10 @@ class ExitCode(IntEnum):
     UNIVERSE = 50
     MARKET_DATA = 60
     PORTFOLIO_ANALYSIS = 65
+    ACCOUNT_PERFORMANCE = 65
     HISTORICAL_REPORT = 66
     PORTFOLIO_STORAGE = 66
+    ACCOUNT_PERFORMANCE_STORAGE = 66
     UNEXPECTED = 70
     INTERRUPTED = 130
 
@@ -164,6 +179,45 @@ def _format_money(value: Decimal) -> str:
 
 def _format_korean_time(value: datetime) -> str:
     return value.astimezone(KOREA_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S KST")
+
+
+def _format_observation_time(value: datetime) -> str:
+    pattern = "%Y-%m-%d %H:%M:%S.%f KST" if value.microsecond else "%Y-%m-%d %H:%M:%S KST"
+    return value.astimezone(KOREA_TIMEZONE).strftime(pattern)
+
+
+def render_account_performance(result: AccountPerformanceResult, console: Console) -> None:
+    """Display the entire account's observation-based estimate and ledger provenance."""
+
+    performance = result.performance
+    console.print("실계좌 전체 기간 성과", style="bold green")
+    overview = Table(show_header=False, box=None, pad_edge=False)
+    overview.add_column("항목", style="bold")
+    overview.add_column("값", justify="right")
+    overview.add_row("시작 관측시각", _format_observation_time(performance.start_observed_at))
+    overview.add_row("종료 관측시각", _format_observation_time(performance.end_observed_at))
+    with localcontext(account_performance_decimal_context()):
+        for label, amount in (
+            ("기초 순자산", performance.beginning_net_assets),
+            ("기말 순자산", performance.ending_net_assets),
+            ("총입금", performance.total_deposits),
+            ("총출금", performance.total_withdrawals),
+            ("순입출금", performance.net_cash_flow),
+            ("기간 운용손익", performance.profit_loss),
+            ("평균투하자본", performance.average_invested_capital),
+        ):
+            overview.add_row(label, f"{amount:,.2f} 원")
+        if performance.estimated_return is None:
+            return_display = "미산출: " + "; ".join(performance.return_unavailable_reasons)
+        else:
+            return_display = f"{performance.estimated_return * Decimal('100'):,.6f}%"
+    overview.add_row("기간 추정 수익률 (Modified Dietz)", return_display)
+    console.print(overview)
+    console.print("사용자 제공 외부 입출금 원장을 사용했습니다.")
+    console.print("조회 완료시각을 계산용 관측시각으로 사용한 추정입니다.")
+    console.print("관측시각은 실제 거래소 평가시각이나 확정 종가시각을 뜻하지 않습니다.")
+    if result.saved_path is not None:
+        console.print("저장 경로:", result.saved_path)
 
 
 def _parse_cli_date_range(start: str, end: str) -> tuple[date, date]:
@@ -983,6 +1037,37 @@ def run_cli_snapshot(
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_account_performance(
+    runner: Callable[[], AccountPerformanceResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Run offline account performance with stable, secret-safe failures."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_account_performance(result, output)
+        return int(ExitCode.SUCCESS)
+    except AccountPerformanceError as error:
+        errors.print(f"실계좌 기간 성과 입력·계산 오류: {error}")
+        return int(ExitCode.ACCOUNT_PERFORMANCE)
+    except PrivateJsonAlreadyExistsError:
+        errors.print("저장 오류: 결과 JSON 파일이 이미 존재합니다. 다른 출력 경로를 지정해 주세요.")
+        return int(ExitCode.ACCOUNT_PERFORMANCE_STORAGE)
+    except PrivateJsonStorageError:
+        errors.print("저장 오류: 실계좌 기간 성과 JSON을 안전하게 저장하지 못했습니다.")
+        return int(ExitCode.ACCOUNT_PERFORMANCE_STORAGE)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 실계좌 기간 성과 계산을 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 실계좌 기간 성과 계산을 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def run_cli_market_data[MarketDataResult](
     runner: Callable[[], MarketDataResult],
     renderer: Callable[[MarketDataResult, Console], None],
@@ -1375,6 +1460,39 @@ def account_snapshot() -> None:
     _exit_after_snapshot()
 
 
+@account_app.command("performance")
+def account_performance(
+    start_snapshot: Annotated[
+        Path,
+        typer.Option("--start-snapshot", help="시작 AccountSnapshot JSON 파일"),
+    ],
+    end_snapshot: Annotated[
+        Path,
+        typer.Option("--end-snapshot", help="종료 AccountSnapshot JSON 파일"),
+    ],
+    cash_flows: Annotated[
+        Path,
+        typer.Option("--cash-flows", help="기간과 사용자 확인 선언을 포함한 외부 입출금 JSON"),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="결과 JSON 경로 · 덮어쓰기 금지"),
+    ] = None,
+) -> None:
+    """저장된 스냅샷 두 개와 원장으로 실계좌 전체 기간 성과를 오프라인 계산합니다."""
+
+    exit_code = run_cli_account_performance(
+        lambda: run_account_performance(
+            start_snapshot,
+            end_snapshot,
+            cash_flows,
+            output_path=output,
+        )
+    )
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
 @universe_app.command("list")
 def universe_list() -> None:
     """등록된 투자 후보를 활성화 상태와 함께 표시합니다."""
@@ -1682,6 +1800,7 @@ def main() -> None:
 
 __all__ = [
     "ExitCode",
+    "account_performance",
     "account_snapshot",
     "app",
     "main",
@@ -1693,6 +1812,7 @@ __all__ = [
     "portfolio_returns",
     "portfolio_risk_model_research",
     "portfolio_volatility_overlay_research",
+    "render_account_performance",
     "render_aligned_return_matrix",
     "render_allocation_research_result",
     "render_allocation_research_start",
@@ -1711,6 +1831,7 @@ __all__ = [
     "render_universe_market_data",
     "render_volatility_overlay_research_result",
     "render_volatility_overlay_research_start",
+    "run_cli_account_performance",
     "run_cli_allocation_research",
     "run_cli_constrained_erc_research",
     "run_cli_historical_report",

@@ -80,6 +80,194 @@ KIS 접근토큰 캐시의 기본 운영 위치도 저장소 외부로 고정합
 
 스냅샷 JSON 안의 timezone-aware 절대시각은 변환하지 않고 보존합니다. 사용자가 보는 파일명에는 조회 완료시각을 한국시간으로 변환한 `+0900`을 사용합니다.
 
+## 실계좌 전체 기간 운용성과 v1 (오프라인)
+
+저장된 `AccountSnapshot` 두 개와 사용자가 제공한 외부 입출금 원장으로 **실계좌 전체**의 기간 운용손익과 **Modified Dietz 기간 추정 수익률**을 계산합니다. Phalanx 알고리즘만의 성과를 뜻하지 않습니다. 이 명령은 지정된 세 입력 파일만 읽으며 KIS API, 현재가 번들, 자격증명 파일, 토큰 캐시를 사용하지 않습니다. 스냅샷 폴더를 자동 탐색하거나 순자산을 다시 평가하지 않습니다.
+
+```bash
+uv run phalanx account performance \
+  --start-snapshot <시작-스냅샷.json> \
+  --end-snapshot <종료-스냅샷.json> \
+  --cash-flows <외부-입출금.json> \
+  --output <새-결과.json>
+```
+
+`--cash-flows`는 필수이며 생략을 입출금 0으로 해석하지 않습니다. `--output`은 선택사항입니다. 결과 파일은 기존 private JSON 저장 기능으로 원자적으로 생성하며 파일·잠금 파일은 `0600`, 새 결과 디렉터리는 `0700`입니다. 기존 결과나 입력 파일을 덮어쓰지 않습니다. 출력 JSON에는 스키마 버전 `"1"`, 방법명 `modified_dietz`, 범위 `whole_account`, 세 입력 파일 **원본 바이트의 SHA-256**, 관측·조회시각, 순자산, 원장 선언·기간, 개별 입출금의 시간 가중치와 가중 금액, 공식, Decimal context, 미산출 사유를 기록합니다. 금액·수익률은 십진 문자열이고 미산출 수익률은 `null`입니다. 실행시각·임의 ID·입력 경로를 넣지 않아 같은 세 입력 바이트는 같은 결과 JSON 바이트를 만듭니다. 공백 등 입력 파일 내용이 바뀌면 SHA-256도 바뀝니다. 원본 계좌번호나 자격증명은 결과에 포함하지 않습니다.
+
+계산은 아래 정의를 사용합니다. `B`, `E`는 각각 시작·종료 `snapshot.summary.net_assets`이며 `t0`, `t1`은 각 `query_completed_at`입니다.
+
+```text
+외부 입금 CF > 0, 외부 출금 CF < 0
+기간 운용손익 = E - B - sum(CF_i)
+w_i = (t1 - occurred_at_i) / (t1 - t0)
+평균투하자본 D = B + sum(w_i * CF_i)
+Modified Dietz 기간 추정 수익률 = 기간 운용손익 / D
+```
+
+고정된 local Decimal context (`prec=50`, `ROUND_HALF_EVEN`)에서 계산하고, 시간 차이는 UTC 정수 마이크로초로 계산하여 `float`를 거치지 않습니다. 계산 도중 금액이나 수익률을 표시 자릿수로 반올림하지 않으며 터미널에서만 금액 소수 2자리·수익률 퍼센트 소수 6자리로 표시합니다. 순입출금이 같아도 입출금 발생시각별 가중치가 다르므로 서로 다른 거래를 순액으로 상계하지 않습니다. 총출금은 양의 절댓값으로 표시합니다. 기초 순자산 `B <= 0` 또는 평균투하자본 `D <= 0`이면 수익률은 미산출이며 각각의 사유와 유효한 기간 운용손익을 별도로 표시합니다.
+
+**조회 완료시각은 계산용 관측시각**이며 실제 거래소 평가시각이나 확정 종가시각으로 단정하지 않습니다. 위 수익률은 이 관측시각으로 시간 가중치를 계산한 추정치입니다. 정확한 TWR, 기준가 시계열, 연환산수익률, MDD, 벤치마크 비교는 v1 범위에 포함하지 않습니다.
+
+원장은 다음 조건을 모두 만족해야 합니다.
+
+- `schema_version`은 문자열 `"1"`이며 `coverage_start`, `coverage_end`는 두 관측시각과 같은 절대시각이어야 합니다. 다른 timezone 표기로 같은 시각을 나타내도 됩니다.
+- `same_account_confirmed`, `external_flows_complete`, `no_in_kind_transfers`는 사용자가 확인한 JSON boolean `true`여야 합니다. 문자열 `"true"`, 숫자 `1`, 누락 또는 `false`는 거부합니다. 프로그램이 실제 원장을 대신 작성하거나 이 선언들을 자동 확인하지 않습니다.
+- `events`는 필수 목록이며, `event_id`는 양끝 공백을 제거한 뒤 비어 있지 않은 고유 식별자, `occurred_at`은 timezone-aware ISO 8601 시각, `amount`는 0이 아닌 유한한 십진 문자열입니다. 예: `"+100"`, `"100.25"`, `"-40"`. JSON 숫자, 지수 표기, NaN, Infinity, 중복 JSON 키와 지원하지 않는 필드는 거부합니다. 다른 ID를 가진 여러 거래가 같은 시각에 발생하는 것은 허용합니다.
+- 입출금은 두 관측시각 사이에 있어야 합니다. **어느 스냅샷이든 조회 시작부터 완료까지의 닫힌 구간(양쪽 경계 포함)**에 발생한 입출금은 NAV 반영 여부가 모호하여 거부합니다.
+- 두 스냅샷은 기존 `AccountSnapshot` 스키마를 통과하고 provider·currency·마스킹 계좌번호가 일치해야 합니다. 마스킹 계좌번호 일치만으로 동일계좌가 입증되지 않으므로 원장의 동일계좌 선언도 필수입니다. 조회 순서가 잘못되거나 두 조회구간이 겹치거나 경계에서 접하면 거부합니다. 어느 스냅샷에든 `summary_consistency_warnings`가 있으면 거부합니다.
+
+매매대금, 계좌 안에서 받은 배당·이자, 수수료·세금은 외부 입출금으로 기록하지 않습니다. NAV에 이미 반영된 비용을 다시 차감하지 않습니다. 현금배당 수령 후 외부로 출금했다면 **그 출금만** 외부 CF입니다. 현물 입출고가 있는 기간은 v1 미지원입니다. 원장 완전성은 사용자 데이터 선언이며 프로그램이 거래 내역과 대조해 입증하지 않습니다.
+
+### 완전한 합성 입력 예시
+
+아래 세 파일은 실제 계좌·API 응답이 아닌 합성 데이터이며 저장소의 `tests/fixtures/account_performance/`에도 동일한 입력이 있습니다. `0000****-**`, 응답 해시와 성공 메시지도 합성 값입니다. 실제 사용 시 아래 선언을 그대로 복사하여 사실 확인을 대신하지 마세요.
+
+시작 `start.json`:
+
+```json
+{
+  "schema_version": "1",
+  "provider": "korea_investment_securities",
+  "currency": "KRW",
+  "account_number_masked": "0000****-**",
+  "query_started_at": "2026-08-01T08:59:59+09:00",
+  "query_completed_at": "2026-08-01T09:00:00+09:00",
+  "summary": {
+    "deposit_total": "100",
+    "orderable_cash": null,
+    "securities_evaluation_amount": "0",
+    "purchase_amount_total": "0",
+    "evaluation_amount_total": "0",
+    "profit_loss_total": "0",
+    "total_assets": "100",
+    "net_assets": "100"
+  },
+  "positions": [],
+  "zero_quantity_balances": [],
+  "evidence": {
+    "pages": [
+      {
+        "page_number": 1,
+        "received_at": "2026-08-01T09:00:00+09:00",
+        "http_status": 200,
+        "tr_cont": "",
+        "ctx_area_fk100": "",
+        "ctx_area_nk100": "",
+        "rt_cd": "0",
+        "msg_cd": "SYNTHETIC",
+        "msg1": "Synthetic example only; not an API response",
+        "response_body_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "output1": [],
+        "output2": [],
+        "placeholder_rows": []
+      }
+    ],
+    "summary_consistency_warnings": []
+  }
+}
+```
+
+종료 `end.json`:
+
+```json
+{
+  "schema_version": "1",
+  "provider": "korea_investment_securities",
+  "currency": "KRW",
+  "account_number_masked": "0000****-**",
+  "query_started_at": "2026-08-11T08:59:59+09:00",
+  "query_completed_at": "2026-08-11T09:00:00+09:00",
+  "summary": {
+    "deposit_total": "220",
+    "orderable_cash": null,
+    "securities_evaluation_amount": "0",
+    "purchase_amount_total": "0",
+    "evaluation_amount_total": "0",
+    "profit_loss_total": "0",
+    "total_assets": "220",
+    "net_assets": "220"
+  },
+  "positions": [],
+  "zero_quantity_balances": [],
+  "evidence": {
+    "pages": [
+      {
+        "page_number": 1,
+        "received_at": "2026-08-11T09:00:00+09:00",
+        "http_status": 200,
+        "tr_cont": "",
+        "ctx_area_fk100": "",
+        "ctx_area_nk100": "",
+        "rt_cd": "0",
+        "msg_cd": "SYNTHETIC",
+        "msg1": "Synthetic example only; not an API response",
+        "response_body_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "output1": [],
+        "output2": [],
+        "placeholder_rows": []
+      }
+    ],
+    "summary_consistency_warnings": []
+  }
+}
+```
+
+기간 정중앙 입금 `cash-flows.json`:
+
+```json
+{
+  "schema_version": "1",
+  "coverage_start": "2026-08-01T09:00:00+09:00",
+  "coverage_end": "2026-08-11T09:00:00+09:00",
+  "same_account_confirmed": true,
+  "external_flows_complete": true,
+  "no_in_kind_transfers": true,
+  "events": [
+    {
+      "event_id": "synthetic-deposit-1",
+      "occurred_at": "2026-08-06T09:00:00+09:00",
+      "amount": "+100"
+    }
+  ]
+}
+```
+
+명시적 무입출금 원장은 같은 합성 관측기간에 대해 다음과 같이 **전체 필수 필드와 빈 목록**을 제공합니다.
+
+```json
+{
+  "schema_version": "1",
+  "coverage_start": "2026-08-01T09:00:00+09:00",
+  "coverage_end": "2026-08-11T09:00:00+09:00",
+  "same_account_confirmed": true,
+  "external_flows_complete": true,
+  "no_in_kind_transfers": true,
+  "events": []
+}
+```
+
+저장소 루트에서 중간 입금 합성 사례를 실행하려면 다음을 사용합니다. 출력 위치를 매번 새 임시 디렉터리로 지정합니다.
+
+```bash
+performance_demo_dir=$(mktemp -d)
+uv run phalanx account performance \
+  --start-snapshot tests/fixtures/account_performance/start.json \
+  --end-snapshot tests/fixtures/account_performance/end.json \
+  --cash-flows tests/fixtures/account_performance/cash-flows.json \
+  --output "$performance_demo_dir/performance.json"
+```
+
+기대값은 기초 100원, 기말 220원, 총입금 100원, 총출금 0원, 순입출금 100원, 기간 운용손익 20원, 평균투하자본 150원, 기간 추정 수익률 `13.333333%`입니다.
+
+### 실제 저장 파일을 연결하는 순서
+
+1. 기존 `~/.local/share/phalanx/snapshots/`에서 비교할 **같은 계좌의 저장된 두 파일을 직접 선택**합니다. 각 `query_started_at`, `query_completed_at`, `summary.net_assets` 및 일관성 경고를 확인합니다. 기존 스냅샷을 고치지 않습니다.
+2. 거래 기록과 대조해 분석기간의 외부 현금 입출금만 사용자 원장에 기록합니다. 원장 기간을 두 `query_completed_at`과 맞추고, 동일계좌·외부 입출금 완전성·현물 입출고 없음이 실제로 확인된 경우에만 세 선언을 `true`로 명시합니다. 조회 중 입출금이 있거나 조회구간이 겹치면 다른 유효한 스냅샷 쌍을 선택해야 합니다.
+3. 원장을 저장소 밖 개인 데이터 위치에 보관하고 세 파일을 `--start-snapshot`, `--end-snapshot`, `--cash-flows`로 명시합니다. 결과를 저장하려면 `--output`에 아직 없는 파일명을 지정합니다. 원장이나 결과를 Git에 추가하지 않습니다.
+4. 터미널의 관측시각·순자산·입출금·손익·추정 수익률 또는 미산출 사유를 확인합니다. 저장한 결과의 입력 SHA-256과 가중치·계산 근거를 함께 보관합니다.
+
+CLI 필수 옵션 누락은 종료 코드 `2`, 입력·계산 오류는 기존 분석 오류와 같은 `65`, 결과 저장 실패·기존 파일 충돌은 `66`, 예기치 않은 오류는 `70`, 사용자 중단은 `130`입니다. 유효한 입력에서 수익률만 미산출되는 경우는 손익 결과를 제공하므로 성공(`0`)입니다.
+
 ## 투자 후보 유니버스
 
 투자 후보 유니버스는 사용자가 직접 등록한 한국 주식의 종목코드, 종목명, 시장, 활성화 여부와 선택적 메모를 로컬 JSON 파일에 저장합니다. 유니버스 등록·활성화·비활성화 자체는 KIS API나 다른 네트워크에 접속하지 않습니다. 별도의 `market-data universe` 명령만 활성 종목을 읽어 시세를 조회하며, 최적화나 주문은 수행하지 않습니다. 계좌 스냅샷의 **READ ONLY** 경계에도 영향을 주지 않습니다.
