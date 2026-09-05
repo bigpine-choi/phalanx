@@ -16,6 +16,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from phalanx.account_overview import AccountOverviewError, calculate_asset_reconciliation
+from phalanx.account_overview_application import (
+    AccountOverviewResult,
+    OverviewProgress,
+    run_production_account_overview,
+)
 from phalanx.account_performance import (
     AccountPerformanceError,
     account_performance_decimal_context,
@@ -128,10 +134,12 @@ class ExitCode(IntEnum):
     MARKET_DATA = 60
     PORTFOLIO_ANALYSIS = 65
     ACCOUNT_PERFORMANCE = 65
+    ACCOUNT_OVERVIEW = 65
     HISTORICAL_REPORT = 66
     PORTFOLIO_STORAGE = 66
     ACCOUNT_PERFORMANCE_STORAGE = 66
     MARKET_DATA_STORAGE = 66
+    ACCOUNT_OVERVIEW_STORAGE = 66
     UNEXPECTED = 70
     INTERRUPTED = 130
 
@@ -285,16 +293,85 @@ def _parse_finite_decimal_option(value: str | Decimal) -> Decimal:
 
 
 def _calculate_asset_reconciliation(summary: AccountSummary) -> tuple[Decimal, Decimal]:
-    """Return presentation-only reverse-derived reconciliation amounts.
+    """Compatibility wrapper around the shared, UI-independent calculation."""
 
-    Neither value is a direct KIS field or a measure of cash availability.
-    """
+    return calculate_asset_reconciliation(summary)
 
-    other_assets_and_settlement_adjustments = (
-        summary.total_assets - summary.deposit_total - summary.securities_evaluation_amount
+
+def render_account_overview(result: AccountOverviewResult, console: Console) -> None:
+    overview = result.overview
+    snapshot = overview.snapshot
+    totals = overview.totals
+    console.print("계좌·시세 통합 현황 · READ ONLY", style="bold green")
+    summary = Table(show_header=False, box=None, pad_edge=False)
+    summary.add_column("항목")
+    summary.add_column("값", justify="right")
+    for label, value in (
+        ("계좌번호", snapshot.account_number_masked),
+        ("계좌 조회 완료", _format_observation_time(snapshot.query_completed_at)),
+        ("전체 관측 완료", _format_observation_time(overview.observation_completed_at)),
+        ("증권사 순자산", _format_money(snapshot.summary.net_assets)),
+        ("예수금 총액", _format_money(snapshot.summary.deposit_total)),
+        ("주문가능현금", "미제공"),
+        ("증권사 주식평가액 (요약)", _format_money(snapshot.summary.securities_evaluation_amount)),
+        ("증권사 보유행 평가액 합계", _format_money(totals.broker_positions_evaluation_amount)),
+        (
+            "조회 현재가 기준 보유주식 평가액",
+            _format_money(totals.observed_positions_evaluation_amount),
+        ),
+        ("평가기준 간 차이 (손익 아님)", _format_money(totals.observed_minus_broker_positions)),
+    ):
+        summary.add_row(label, value)
+    console.print(summary)
+    if overview.positions:
+        table = Table(title="보유주식 · 조회 현재가 기준")
+        for label in (
+            "종목코드",
+            "종목명",
+            "보유수량",
+            "증권사 평가액",
+            "조회 현재가",
+            "시세 평가액",
+            "주식 내 비중",
+        ):
+            table.add_column(label, justify="left" if label in {"종목코드", "종목명"} else "right")
+        for position in overview.positions:
+            table.add_row(
+                position.stock_code,
+                position.product_name,
+                _format_decimal(position.holding_quantity),
+                _format_money(position.broker_evaluation_amount),
+                _format_money(position.observed_price),
+                _format_money(position.observed_evaluation_amount),
+                f"{position.observed_stock_weight:.2%}",
+            )
+        console.print(table)
+    else:
+        console.print("보유주식이 없어 현재가 조회를 생략했습니다.")
+    if totals.broker_summary_minus_positions:
+        console.print(
+            "확인 필요: 증권사 주식 요약과 보유행 합계에 차이가 있습니다:",
+            _format_money(totals.broker_summary_minus_positions),
+        )
+    console.print(
+        "비중은 조회 현재가 기준 보유주식 평가액 합계 대비 비중입니다. 현금은 포함하지 않습니다."
     )
-    liabilities_and_deductions = summary.total_assets - summary.net_assets
-    return other_assets_and_settlement_adjustments, liabilities_and_deductions
+    console.print(
+        "시세 평가는 계좌 조회 당시 보유수량을 사용하며 증권사 순자산을 변경하지 않습니다."
+    )
+    console.print(
+        "관측시각은 요청·응답 시각입니다. 실제 체결시각·확정 종가·체결 가능성을 뜻하지 않습니다."
+    )
+    console.print("저장 경로:", result.saved_path)
+
+
+def render_overview_progress(progress: OverviewProgress, console: Console) -> None:
+    if progress.stage == "balance":
+        console.print("계좌 조회 중 · READ ONLY")
+    elif progress.stage == "prices":
+        console.print(f"보유종목 {progress.stock_count}개의 KRX 현재가 조회 중")
+    else:
+        console.print("완성된 통합 현황 저장 중")
 
 
 def render_snapshot_summary(result: AccountSnapshotResult, console: Console) -> None:
@@ -1034,6 +1111,48 @@ def _universe_error(error: UniverseError) -> None:
     raise typer.Exit(ExitCode.UNIVERSE)
 
 
+def run_cli_account_overview(
+    runner: Callable[[], AccountOverviewResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_account_overview(result, output)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 계좌 연결정보와 자격증명 파일의 접근 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisAuthError, KisBalanceAuthenticationError, KisMarketDataAuthenticationError):
+        errors.print("인증 오류: 계좌 연결정보를 확인한 뒤 다시 조회해 주세요.")
+        return int(ExitCode.AUTHENTICATION)
+    except (KisBalanceClientError, KisBalanceParsingError):
+        errors.print("계좌 조회 오류: 통합 현황을 만들지 못했습니다. 잠시 후 다시 조회해 주세요.")
+        return int(ExitCode.BALANCE_QUERY)
+    except (MarketDataError, KisMarketDataClientError, KisMarketDataParsingError):
+        errors.print(
+            "시세 조회 오류: 모든 보유종목의 현재가를 확인하지 못했습니다. 다시 조회해 주세요."
+        )
+        return int(ExitCode.MARKET_DATA)
+    except AccountOverviewError as error:
+        errors.print("통합 현황 오류:", str(error))
+        return int(ExitCode.ACCOUNT_OVERVIEW)
+    except PrivateJsonStorageError:
+        errors.print(
+            "저장 오류: 통합 현황을 보관하지 못했습니다. 저장 공간과 접근 권한을 확인해 주세요."
+        )
+        return int(ExitCode.ACCOUNT_OVERVIEW_STORAGE)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 계좌·시세 통합 조회를 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 통합 현황을 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def run_cli_snapshot(
     *,
     runner: Callable[[], AccountSnapshotResult] | None = None,
@@ -1539,6 +1658,32 @@ def account_snapshot() -> None:
     _exit_after_snapshot()
 
 
+@account_app.command("overview")
+def account_overview(
+    max_observation_span_seconds: Annotated[
+        int,
+        typer.Option(
+            "--max-observation-span-seconds", min=1, help="계좌·시세 전체 관측 허용시간 (초)"
+        ),
+    ] = 60,
+) -> None:
+    """계좌와 보유종목 현재가를 함께 조회하고 통합 현황을 자동 저장합니다."""
+
+    output = _console()
+    exit_code = run_cli_account_overview(
+        lambda: run_production_account_overview(
+            max_observation_span_seconds=max_observation_span_seconds,
+            progress_callback=lambda progress: render_overview_progress(progress, output),
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification, output
+            ),
+        ),
+        console=output,
+    )
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
 @account_app.command("performance")
 def account_performance(
     start_snapshot: Annotated[
@@ -1911,6 +2056,7 @@ def main() -> None:
 
 __all__ = [
     "ExitCode",
+    "account_overview",
     "account_performance",
     "account_snapshot",
     "app",
@@ -1924,6 +2070,7 @@ __all__ = [
     "portfolio_returns",
     "portfolio_risk_model_research",
     "portfolio_volatility_overlay_research",
+    "render_account_overview",
     "render_account_performance",
     "render_aligned_return_matrix",
     "render_allocation_research_result",
@@ -1934,6 +2081,7 @@ __all__ = [
     "render_historical_report_result",
     "render_historical_report_start",
     "render_market_data_start",
+    "render_overview_progress",
     "render_portfolio_returns_start",
     "render_rate_limit_notification",
     "render_risk_model_research_result",
@@ -1944,6 +2092,7 @@ __all__ = [
     "render_valuation_prices",
     "render_volatility_overlay_research_result",
     "render_volatility_overlay_research_start",
+    "run_cli_account_overview",
     "run_cli_account_performance",
     "run_cli_allocation_research",
     "run_cli_constrained_erc_research",
