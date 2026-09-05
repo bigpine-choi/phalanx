@@ -62,10 +62,17 @@ from phalanx.kis.errors import (
 )
 from phalanx.kis.market_data_client import KisRateLimitNotification
 from phalanx.market_data.application import (
+    ValuationPriceResult,
     run_production_daily_market_data,
     run_production_universe_market_data,
+    run_production_valuation_prices,
 )
-from phalanx.market_data.errors import InvalidMarketDataRangeError, MarketDataError
+from phalanx.market_data.errors import (
+    CurrentPriceObservationReadError,
+    InvalidMarketDataRangeError,
+    MarketDataError,
+    ValuationPriceBundleCoherenceError,
+)
 from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
 from phalanx.portfolio.application import (
@@ -124,6 +131,7 @@ class ExitCode(IntEnum):
     HISTORICAL_REPORT = 66
     PORTFOLIO_STORAGE = 66
     ACCOUNT_PERFORMANCE_STORAGE = 66
+    MARKET_DATA_STORAGE = 66
     UNEXPECTED = 70
     INTERRUPTED = 130
 
@@ -149,7 +157,7 @@ universe_app = typer.Typer(
 )
 market_data_app = typer.Typer(
     add_completion=False,
-    help="KIS 국내주식 READ ONLY 일별 수정주가 조회",
+    help="KIS 국내주식 READ ONLY 일별 수정주가·현재가 조회",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
@@ -406,6 +414,30 @@ def render_daily_market_data(bars: tuple[DailyBar, ...], console: Console) -> No
         overview.add_row("거래일", "없음")
         overview.add_row("종가", "없음")
     console.print(overview)
+
+
+def render_valuation_prices(result: ValuationPriceResult, console: Console) -> None:
+    """Render exact prices and local observation bounds in requested order."""
+
+    table = Table(title="KRX 현재가 묶음 · READ ONLY")
+    table.add_column("종목코드")
+    table.add_column("가격 (KRW)", justify="right")
+    table.add_column("시장")
+    table.add_column("요청 관측시각 (KST)", overflow="fold")
+    table.add_column("응답 관측시각 (KST)", overflow="fold")
+    for observation in result.bundle.observations:
+        table.add_row(
+            observation.stock_code,
+            _format_decimal(observation.current_price),
+            observation.market.value,
+            _format_observation_time(observation.request_started_at),
+            _format_observation_time(observation.received_at),
+        )
+    console.print(table)
+    console.print(f"수집 허용시간: {result.max_acquisition_span_seconds}초")
+    console.print("관측시각은 클라이언트의 요청 시작·응답 수신시각이며 실제 체결시각이 아닙니다.")
+    if result.saved_path is not None:
+        console.print("저장 경로:", result.saved_path)
 
 
 def render_market_data_start(
@@ -1105,6 +1137,53 @@ def run_cli_market_data[MarketDataResult](
         return int(ExitCode.UNEXPECTED)
 
 
+def run_cli_valuation_prices(
+    runner: Callable[[], ValuationPriceResult],
+    *,
+    console: Console | None = None,
+    error_console: Console | None = None,
+) -> int:
+    """Report complete current-price reads and write-once storage with safe failures."""
+
+    output = _console() if console is None else console
+    errors = _console(stderr=True) if error_console is None else error_console
+    try:
+        result = runner()
+        render_valuation_prices(result, output)
+        return int(ExitCode.SUCCESS)
+    except ConfigError:
+        errors.print("설정 오류: 외부 KIS 자격증명 파일과 0700/0600 권한을 확인해 주세요.")
+        return int(ExitCode.CONFIGURATION)
+    except (KisMarketDataAuthenticationError, KisAuthError):
+        errors.print("인증 오류: KIS 접근토큰을 안전하게 발급하거나 재사용하지 못했습니다.")
+        return int(ExitCode.AUTHENTICATION)
+    except CurrentPriceObservationReadError as error:
+        errors.print(
+            f"현재가 조회 오류: {error.stock_code} 조회에 실패하여 묶음을 생성하지 못했습니다."
+        )
+        return int(ExitCode.MARKET_DATA)
+    except ValuationPriceBundleCoherenceError:
+        errors.print(
+            "현재가 조회 오류: 조회 결과의 일관성 또는 수집 허용시간을 만족하지 못했습니다."
+        )
+        return int(ExitCode.MARKET_DATA)
+    except (MarketDataError, KisMarketDataClientError, KisMarketDataParsingError) as error:
+        errors.print(f"현재가 조회 오류: {error}")
+        return int(ExitCode.MARKET_DATA)
+    except PrivateJsonAlreadyExistsError:
+        errors.print("저장 오류: 결과 JSON 파일이 이미 존재합니다. 다른 출력 경로를 지정해 주세요.")
+        return int(ExitCode.MARKET_DATA_STORAGE)
+    except PrivateJsonStorageError:
+        errors.print("저장 오류: 현재가 묶음 JSON을 안전하게 저장하지 못했습니다.")
+        return int(ExitCode.MARKET_DATA_STORAGE)
+    except KeyboardInterrupt:
+        errors.print("중단됨: 현재가 묶음 조회를 안전하게 종료했습니다.")
+        return int(ExitCode.INTERRUPTED)
+    except Exception:
+        errors.print("예기치 않은 오류로 현재가 묶음 조회를 완료하지 못했습니다.")
+        return int(ExitCode.UNEXPECTED)
+
+
 def run_cli_portfolio_returns(
     runner: Callable[[], AlignedReturnMatrix],
     *,
@@ -1592,6 +1671,38 @@ def market_data_daily(
     )
 
 
+@market_data_app.command("valuation-prices")
+def market_data_valuation_prices(
+    stock_codes: Annotated[
+        list[str], typer.Option("--stock-code", help="조회할 6자리 종목코드 · 반복 지정, 순서 보존")
+    ],
+    max_acquisition_span_seconds: Annotated[
+        int,
+        typer.Option("--max-acquisition-span-seconds", min=1, help="수집 허용시간 (양의 정수 초)"),
+    ] = 60,
+    output_path: Annotated[
+        Path | None, typer.Option("--output", help="새 결과 JSON 경로 · 덮어쓰기 금지")
+    ] = None,
+) -> None:
+    """지정한 종목의 KRX 현재가 묶음을 조회하고 선택적으로 저장합니다."""
+
+    output = _console()
+    output.print("KIS 현재가 묶음 조회 시작 · READ ONLY", style="bold green")
+    exit_code = run_cli_valuation_prices(
+        lambda: run_production_valuation_prices(
+            tuple(stock_codes),
+            max_acquisition_span_seconds=max_acquisition_span_seconds,
+            output_path=output_path,
+            rate_limit_callback=lambda notification: render_rate_limit_notification(
+                notification, output
+            ),
+        ),
+        console=output,
+    )
+    if exit_code != ExitCode.SUCCESS:
+        raise typer.Exit(exit_code)
+
+
 @market_data_app.command("universe")
 def market_data_universe(
     start: Annotated[str, typer.Option("--start", help="조회 시작일 YYYY-MM-DD")],
@@ -1806,6 +1917,7 @@ __all__ = [
     "main",
     "market_data_daily",
     "market_data_universe",
+    "market_data_valuation_prices",
     "portfolio_allocation_research",
     "portfolio_constrained_erc_research",
     "portfolio_historical_report",
@@ -1829,6 +1941,7 @@ __all__ = [
     "render_snapshot_summary",
     "render_universe",
     "render_universe_market_data",
+    "render_valuation_prices",
     "render_volatility_overlay_research_result",
     "render_volatility_overlay_research_start",
     "run_cli_account_performance",
@@ -1839,6 +1952,7 @@ __all__ = [
     "run_cli_portfolio_returns",
     "run_cli_risk_model_research",
     "run_cli_snapshot",
+    "run_cli_valuation_prices",
     "run_cli_volatility_overlay_research",
     "universe_add",
     "universe_disable",
