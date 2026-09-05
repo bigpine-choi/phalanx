@@ -1,0 +1,40 @@
+{
+  "schema_version": "1",
+  "provider": "korea_investment_securities",
+  "currency": "KRW",
+  "account_number_masked": "0000****-**",
+  "query_started_at": "2026-08-01T08:59:59+09:00",
+  "query_completed_at": "2026-08-01T09:00:00+09:00",
+  "summary": {
+    "deposit_total": "100",
+    "orderable_cash": null,
+    "securities_evaluation_amount": "0",
+    "purchase_amount_total": "0",
+    "evaluation_amount_total": "0",
+    "profit_loss_total": "0",
+    "total_assets": "100",
+    "net_assets": "100"
+  },
+  "positions": [],
+  "zero_quantity_balances": [],
+  "evidence": {
+    "pages": [
+      {
+        "page_number": 1,
+        "received_at": "2026-08-01T09:00:00+09:00",
+        "http_status": 200,
+        "tr_cont": "",
+        "ctx_area_fk100": "",
+        "ctx_area_nk100": "",
+        "rt_cd": "0",
+        "msg_cd": "SYNTHETIC",
+        "msg1": "Synthetic example only; not an API response",
+        "response_body_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "output1": [],
+        "output2": [],
+        "placeholder_rows": []
+      }
+    ],
+    "summary_consistency_warnings": []
+  }
+}
