@@ -1,0 +1,205 @@
+{
+  "schema_version": "1",
+  "series_id": "synthetic-demo",
+  "environment": "development",
+  "inception": {
+    "series_id": "synthetic-demo",
+    "environment": "development",
+    "inception_date": "2026-01-05",
+    "initial_state": {
+      "cash": "10000",
+      "positions": {
+        "SYN001": "10"
+      },
+      "receivables": {
+        "opening-receivable": "100"
+      },
+      "payables": {
+        "opening-payable": "50"
+      }
+    },
+    "cash_flow_policy": "previous_close_unit_value",
+    "benchmark_id": "KOSPI_TR",
+    "source_ref": "synthetic:inception:explicit-eod"
+  },
+  "events": [
+    {
+      "event_id": "deposit-1",
+      "date": "2026-01-06",
+      "sequence": 0,
+      "kind": "deposit",
+      "amount": "2000",
+      "source_ref": "synthetic:ledger:deposit-1"
+    },
+    {
+      "event_id": "buy-1",
+      "date": "2026-01-06",
+      "sequence": 1,
+      "kind": "buy",
+      "amount": "1000",
+      "source_ref": "synthetic:ledger:buy-1",
+      "instrument": "SYN001",
+      "quantity": "1"
+    },
+    {
+      "event_id": "dividend-1",
+      "date": "2026-01-06",
+      "sequence": 2,
+      "kind": "dividend",
+      "amount": "100",
+      "source_ref": "synthetic:ledger:dividend-1"
+    },
+    {
+      "event_id": "fee-1",
+      "date": "2026-01-06",
+      "sequence": 3,
+      "kind": "fee",
+      "amount": "10",
+      "source_ref": "synthetic:ledger:fee-1"
+    },
+    {
+      "event_id": "settle-buy-1",
+      "date": "2026-01-06",
+      "sequence": 4,
+      "kind": "settle_payable",
+      "amount": "1000",
+      "source_ref": "synthetic:ledger:settle-buy-1",
+      "reference_id": "buy-1"
+    },
+    {
+      "event_id": "settle-dividend-1",
+      "date": "2026-01-06",
+      "sequence": 5,
+      "kind": "settle_receivable",
+      "amount": "100",
+      "source_ref": "synthetic:ledger:settle-dividend-1",
+      "reference_id": "dividend-1"
+    },
+    {
+      "event_id": "sell-1",
+      "date": "2026-01-07",
+      "sequence": 0,
+      "kind": "sell",
+      "amount": "2200",
+      "source_ref": "synthetic:ledger:sell-1",
+      "instrument": "SYN001",
+      "quantity": "2"
+    },
+    {
+      "event_id": "withdrawal-1",
+      "date": "2026-01-07",
+      "sequence": 1,
+      "kind": "withdrawal",
+      "amount": "500",
+      "source_ref": "synthetic:ledger:withdrawal-1"
+    },
+    {
+      "event_id": "interest-1",
+      "date": "2026-01-07",
+      "sequence": 2,
+      "kind": "interest",
+      "amount": "20",
+      "source_ref": "synthetic:ledger:interest-1"
+    },
+    {
+      "event_id": "tax-1",
+      "date": "2026-01-07",
+      "sequence": 3,
+      "kind": "tax",
+      "amount": "5",
+      "source_ref": "synthetic:ledger:tax-1"
+    },
+    {
+      "event_id": "settle-opening-receivable",
+      "date": "2026-01-07",
+      "sequence": 4,
+      "kind": "settle_receivable",
+      "amount": "100",
+      "source_ref": "synthetic:ledger:settle-opening-receivable",
+      "reference_id": "opening-receivable"
+    },
+    {
+      "event_id": "settle-opening-payable",
+      "date": "2026-01-07",
+      "sequence": 5,
+      "kind": "settle_payable",
+      "amount": "50",
+      "source_ref": "synthetic:ledger:settle-opening-payable",
+      "reference_id": "opening-payable"
+    },
+    {
+      "event_id": "settle-sell-1",
+      "date": "2026-01-08",
+      "sequence": 0,
+      "kind": "settle_receivable",
+      "amount": "2200",
+      "source_ref": "synthetic:ledger:settle-sell-1",
+      "reference_id": "sell-1"
+    },
+    {
+      "event_id": "settle-interest-1",
+      "date": "2026-01-08",
+      "sequence": 1,
+      "kind": "settle_receivable",
+      "amount": "20",
+      "source_ref": "synthetic:ledger:settle-interest-1",
+      "reference_id": "interest-1"
+    },
+    {
+      "event_id": "settle-fee-1",
+      "date": "2026-01-08",
+      "sequence": 2,
+      "kind": "settle_payable",
+      "amount": "10",
+      "source_ref": "synthetic:ledger:settle-fee-1",
+      "reference_id": "fee-1"
+    },
+    {
+      "event_id": "settle-tax-1",
+      "date": "2026-01-08",
+      "sequence": 3,
+      "kind": "settle_payable",
+      "amount": "5",
+      "source_ref": "synthetic:ledger:settle-tax-1",
+      "reference_id": "tax-1"
+    }
+  ],
+  "days": [
+    {
+      "date": "2026-01-05",
+      "ledger_complete": true,
+      "prices": {
+        "SYN001": "1000"
+      },
+      "benchmark_close": "5000",
+      "source_ref": "synthetic:valuation:2026-01-05"
+    },
+    {
+      "date": "2026-01-06",
+      "ledger_complete": true,
+      "prices": {
+        "SYN001": "1100"
+      },
+      "benchmark_close": "5050",
+      "source_ref": "synthetic:valuation:2026-01-06"
+    },
+    {
+      "date": "2026-01-08",
+      "ledger_complete": true,
+      "prices": {
+        "SYN001": "1000"
+      },
+      "benchmark_close": "5100",
+      "source_ref": "synthetic:valuation:2026-01-08"
+    },
+    {
+      "date": "2026-01-09",
+      "ledger_complete": true,
+      "prices": {
+        "SYN001": "950"
+      },
+      "benchmark_close": "5200",
+      "source_ref": "synthetic:valuation:2026-01-09"
+    }
+  ]
+}
