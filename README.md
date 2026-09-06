@@ -13,6 +13,8 @@ Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투
 
 현재 브랜치는 외부 자격증명, OAuth 토큰 캐시, 국내주식 잔고 파싱·연속조회, 불변 스냅샷 저장, 로컬 투자 후보 관리, 수정주가 기준 일별 OHLCV 조회, 공통 거래일 단순수익률 계산, self-contained 과거 성과 리포트, 조건부 자산배분 연구 harness, 네 개의 독립 공분산 시나리오, 각 시나리오의 Constrained ERC와 별도 deterministic volatility overlay 연구까지 구성합니다. 실제 자격증명과 실제 KIS API는 자동 테스트에서 사용하지 않습니다.
 
+정규화된 원장·일별 평가자료를 입력받는 `phalanx nav`는 일별 NAV·기준가·수익률·MDD와 KOSPI Total Return 비교를 SQLite에 보존하고 누락 자료·과거 정정 이후를 복원합니다. 공식 설정일은 사용자가 직접 지정하며 개발 데이터와 분리합니다. [일별 NAV 사용법과 합성 예시](docs/daily-nav.md)를 참고하세요. KIS 과거 체결·권리·입출금 자동 수집과 HTS 엑셀 변환은 아직 구현하지 않았습니다.
+
 ## 개발 환경
 
 Python 3.12와 [uv](https://docs.astral.sh/uv/)를 사용합니다.

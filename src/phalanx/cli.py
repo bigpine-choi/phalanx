@@ -81,6 +81,7 @@ from phalanx.market_data.errors import (
 )
 from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
+from phalanx.nav.cli import app as nav_app
 from phalanx.portfolio.application import (
     AllocationResearchApplicationResult,
     ConstrainedErcResearchApplicationResult,
@@ -179,6 +180,7 @@ app.add_typer(account_app, name="account")
 app.add_typer(universe_app, name="universe")
 app.add_typer(market_data_app, name="market-data")
 app.add_typer(portfolio_app, name="portfolio")
+app.add_typer(nav_app, name="nav")
 
 
 def _console(*, stderr: bool = False) -> Console:

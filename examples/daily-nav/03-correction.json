@@ -1,0 +1,30 @@
+{
+  "schema_version": "1",
+  "series_id": "synthetic-demo",
+  "environment": "development",
+  "events": [
+    {
+      "event_id": "dividend-1",
+      "date": "2026-01-06",
+      "sequence": 2,
+      "kind": "dividend",
+      "amount": "110",
+      "source_ref": "synthetic:ledger:dividend-1",
+      "revision": 2,
+      "correction_reason": "합성 예시: 배당 발생액 100을 110으로 정정"
+    }
+  ],
+  "days": [
+    {
+      "date": "2026-01-06",
+      "ledger_complete": true,
+      "prices": {
+        "SYN001": "1150"
+      },
+      "benchmark_close": "5050",
+      "source_ref": "synthetic:valuation:2026-01-06",
+      "revision": 2,
+      "correction_reason": "합성 예시: 종가 1100을 1150으로 정정"
+    }
+  ]
+}

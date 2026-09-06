@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "series_id": "synthetic-demo",
+  "environment": "development",
+  "days": [
+    {
+      "date": "2026-01-07",
+      "ledger_complete": true,
+      "prices": {
+        "SYN001": "1200"
+      },
+      "benchmark_close": "5150",
+      "source_ref": "synthetic:valuation:2026-01-07"
+    }
+  ]
+}
