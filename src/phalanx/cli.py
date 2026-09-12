@@ -33,6 +33,7 @@ from phalanx.application import (
     run_production_snapshot,
 )
 from phalanx.config import ConfigError
+from phalanx.discovery.cli import app as discovery_app
 from phalanx.domain import (
     CONSTRAINED_ERC_POLICY_ORDER,
     SCENARIO_KIND_ORDER,
@@ -181,6 +182,7 @@ app.add_typer(universe_app, name="universe")
 app.add_typer(market_data_app, name="market-data")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(nav_app, name="nav")
+app.add_typer(discovery_app, name="discovery")
 
 
 def _console(*, stderr: bool = False) -> Console:

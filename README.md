@@ -344,6 +344,38 @@ uv run phalanx universe remove 035720
 
 종목코드와 실제 상장 시장의 일치 여부를 네트워크로 조회하거나 검증하지 않으므로 사용자가 올바른 값을 입력해야 합니다. CLI는 저장소를 직접 다루지 않고 유니버스 서비스 계층을 호출합니다. 향후 GUI도 같은 서비스 계층을 사용할 수 있습니다.
 
+## 시장 후보 자동 발굴
+
+KOSPI·KOSDAQ 공개 종목 마스터에서 후보를 자동 수집하고 `eligible`(적격),
+`excluded`(제외), `unknown`(미확인)으로 판정합니다. 계좌 설정이나 OAuth 토큰은
+필요하지 않으며 수동 유니버스·계좌 자료·NAV 이력을 변경하지 않습니다.
+
+```bash
+uv run phalanx discovery refresh
+uv run phalanx discovery list --status eligible
+uv run phalanx discovery list --status unknown
+uv run phalanx discovery show 005930
+```
+
+`refresh`는 두 시장의 전체·정규화·적격·제외·미확인 건수와 처리 상태를 표시합니다.
+`list`와 `show`는 저장된 결과만 읽으며 네트워크에 접속하지 않습니다.
+기본 저장 위치는 `~/.local/share/phalanx/discovery/discovery.sqlite3`이고,
+각 명령의 `--db` 옵션으로 별도 경로를 지정할 수 있습니다. 원본 ZIP·MST 바이트와
+SHA-256, 시장별 수집 상태·시각, 스키마·파서·정책 버전, 원천값과 판정 사유를 보존합니다.
+
+현재 정책 `domestic-common-stock-v2`는 공식 증권그룹을 1차 분류 근거로 사용합니다.
+ST 주권의 ETP 공백은 원시 공백·정규화 `null`로 보존하며, ST 분류를 비ETP의 독립
+근거로 기록합니다. 명시적 ETP·미지원 비공백 코드·분류 충돌은 계속 판정에 반영합니다.
+우선주·SPAC·거래정지·정리매매·관리종목 제외와 다른 필수값 누락 시 미확인 규칙은
+유지합니다. 이전 v1 스냅샷은 조회 시 재판정하거나 덮어쓰지 않습니다. 다른 경고 정보는
+보존하며 숫자 필터는 추가하지 않습니다. 최종 투자정책이나 과거 당시 유니버스가 아닙니다.
+
+부분·실패 수집은 종료코드 `1`, 저장 오류는 `66`입니다. 새 수집 실패 시 마지막 정상본을
+보존하고, 이전 결과 조회에는 수집 시점과 최근 실패를 함께 표시합니다. 파일 처리 성공이
+시장 전체의 무누락을 보장하지 않으며, 공급자 전체 기준시점은 미확인으로 남깁니다.
+공식 자료의 고정 커밋, 정책, 한계와 실제 수집 검증은
+[시장 후보 발굴 문서](docs/market-candidate-discovery.md)에 설명되어 있습니다.
+
 ## KIS 국내주식 일별 시세
 
 일별 시세 기능은 한국투자증권 실전투자 서버의 조회 전용 API를 사용합니다. [공식 open-trading-api 예제](https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice)의 계약에 따라 다음 endpoint와 TR ID를 고정합니다.
