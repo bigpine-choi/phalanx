@@ -1,0 +1,546 @@
+{
+  "source_commit": "b4e6249714418aa57833d1cbbbced39cbcc5b125",
+  "source_run_id": "2078ec373f4441d9993834a14e10a090",
+  "description": "Selected field facts only; no complete downloaded master records. Offsets independently counted from official headers; synthetic rows are used by regression tests.",
+  "markets": {
+    "KOSPI": {
+      "source_sha256": "2da4673914c3cd88ad686102396620844dec805ed4de7734f2641465bc72ee25",
+      "suffix_bytes": 227,
+      "offsets": {
+        "scrt_grp_cls_code": [
+          61,
+          2
+        ],
+        "prst_cls_code": [
+          219,
+          1
+        ],
+        "etp_prod_cls_code": [
+          83,
+          1
+        ],
+        "etpr_undt_objt_co_yn": [
+          90,
+          1
+        ],
+        "trht_yn": [
+          121,
+          1
+        ],
+        "sltr_yn": [
+          122,
+          1
+        ],
+        "mang_issu_yn": [
+          123,
+          1
+        ]
+      },
+      "samples": [
+        {
+          "kind": "requested_005930",
+          "line_number": 444,
+          "short_code": "005930",
+          "name": "삼성전자",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 284,
+          "expected_v2_status": "eligible",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "V2_PASSED"
+          ]
+        },
+        {
+          "kind": "preferred",
+          "line_number": 93,
+          "short_code": "000087",
+          "name": "하이트진로2우B",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "2",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "2",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 282,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "PREFERRED_STOCK"
+          ]
+        },
+        {
+          "kind": "etp",
+          "line_number": 94,
+          "short_code": "0000D0",
+          "name": "TIGER 엔비디아미국채커버드콜밸런스(합성)",
+          "raw": {
+            "scrt_grp_cls_code": "EF",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": "2",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "EF",
+            "preferred_class": "0",
+            "etp_class": "2",
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 272,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_DOMESTIC_ORDINARY_EQUITY",
+            "ETP"
+          ]
+        },
+        {
+          "kind": "etn",
+          "line_number": 2205,
+          "short_code": "Q500061",
+          "name": "신한 인버스 코스피 200 선물 ETN",
+          "raw": {
+            "scrt_grp_cls_code": "EN",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": "3",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "EN",
+            "preferred_class": "0",
+            "etp_class": "3",
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 278,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "UNSUPPORTED_CODE",
+            "ETP"
+          ]
+        },
+        {
+          "kind": "halted",
+          "line_number": 18,
+          "short_code": "F70101B96",
+          "name": "벨기에코어오피스2호",
+          "raw": {
+            "scrt_grp_cls_code": "BC",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "Y",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "BC",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": true,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 279,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_DOMESTIC_ORDINARY_EQUITY",
+            "MISSING_REQUIRED_FIELD",
+            "TRADING_HALTED"
+          ]
+        },
+        {
+          "kind": "liquidation",
+          "line_number": 467,
+          "short_code": "006380",
+          "name": "카프로",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "Y",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": true,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 285,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "LIQUIDATION_TRADING"
+          ]
+        },
+        {
+          "kind": "managed",
+          "line_number": 89,
+          "short_code": "000040",
+          "name": "KR모터스",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "Y"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": true
+          },
+          "byte_length": 288,
+          "character_length": 285,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "MANAGED_ISSUE"
+          ]
+        },
+        {
+          "kind": "unsupported_preferred",
+          "line_number": 511,
+          "short_code": "00781K",
+          "name": "코리아써키트2우B",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "9",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "9",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 281,
+          "expected_v2_status": "unknown",
+          "expected_v2_codes": [
+            "UNSUPPORTED_CODE",
+            "NON_ETP_BY_ST_GROUP"
+          ]
+        },
+        {
+          "kind": "unsupported_etp",
+          "line_number": 2281,
+          "short_code": "Q520100",
+          "name": "미래에셋 레버리지 삼성전자 단일종목 ETN",
+          "raw": {
+            "scrt_grp_cls_code": "EN",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": "9",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "EN",
+            "preferred_class": "0",
+            "etp_class": "9",
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 288,
+          "character_length": 272,
+          "expected_v2_status": "unknown",
+          "expected_v2_codes": [
+            "UNSUPPORTED_CODE"
+          ]
+        }
+      ]
+    },
+    "KOSDAQ": {
+      "source_sha256": "ad227a56c27b40db89ba81b5ec31a51f799d5c89dc05b6147d97f9afaa74494a",
+      "suffix_bytes": 221,
+      "offsets": {
+        "scrt_grp_cls_code": [
+          61,
+          2
+        ],
+        "prst_cls_code": [
+          214,
+          1
+        ],
+        "etp_prod_cls_code": [
+          79,
+          1
+        ],
+        "etpr_undt_objt_co_yn": [
+          85,
+          1
+        ],
+        "trht_yn": [
+          116,
+          1
+        ],
+        "sltr_yn": [
+          117,
+          1
+        ],
+        "mang_issu_yn": [
+          118,
+          1
+        ]
+      },
+      "samples": [
+        {
+          "kind": "common",
+          "line_number": 8,
+          "short_code": "0001A0",
+          "name": "덕양에너젠",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 282,
+          "character_length": 277,
+          "expected_v2_status": "eligible",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "V2_PASSED"
+          ]
+        },
+        {
+          "kind": "spac",
+          "line_number": 12,
+          "short_code": "0004Y0",
+          "name": "디비금융제14호스팩",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "Y",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": true,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 282,
+          "character_length": 274,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "SPAC"
+          ]
+        },
+        {
+          "kind": "halted",
+          "line_number": 1,
+          "short_code": "900110",
+          "name": "딥커머스",
+          "raw": {
+            "scrt_grp_cls_code": "FS",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "Y",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "FS",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": true,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 282,
+          "character_length": 278,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_DOMESTIC_ORDINARY_EQUITY",
+            "MISSING_REQUIRED_FIELD",
+            "TRADING_HALTED"
+          ]
+        },
+        {
+          "kind": "liquidation",
+          "line_number": 71,
+          "short_code": "008290",
+          "name": "원풍물산",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "Y",
+            "mang_issu_yn": "Y"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": true,
+            "managed": true
+          },
+          "byte_length": 282,
+          "character_length": 278,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "LIQUIDATION_TRADING",
+            "MANAGED_ISSUE"
+          ]
+        },
+        {
+          "kind": "managed",
+          "line_number": 17,
+          "short_code": "001000",
+          "name": "신라섬유",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "0",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "Y"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "0",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": true
+          },
+          "byte_length": 282,
+          "character_length": 278,
+          "expected_v2_status": "excluded",
+          "expected_v2_codes": [
+            "NON_ETP_BY_ST_GROUP",
+            "MANAGED_ISSUE"
+          ]
+        },
+        {
+          "kind": "unsupported_preferred",
+          "line_number": 261,
+          "short_code": "03481K",
+          "name": "해성산업1우",
+          "raw": {
+            "scrt_grp_cls_code": "ST",
+            "prst_cls_code": "9",
+            "etp_prod_cls_code": " ",
+            "etpr_undt_objt_co_yn": "N",
+            "trht_yn": "N",
+            "sltr_yn": "N",
+            "mang_issu_yn": "N"
+          },
+          "normalized": {
+            "security_group": "ST",
+            "preferred_class": "9",
+            "etp_class": null,
+            "spac": false,
+            "trading_halted": false,
+            "liquidation_trading": false,
+            "managed": false
+          },
+          "byte_length": 282,
+          "character_length": 277,
+          "expected_v2_status": "unknown",
+          "expected_v2_codes": [
+            "UNSUPPORTED_CODE",
+            "NON_ETP_BY_ST_GROUP"
+          ]
+        }
+      ]
+    }
+  }
+}
