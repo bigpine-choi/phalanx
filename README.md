@@ -396,6 +396,23 @@ uv run phalanx market-data history show JOB_ID 0001A0
 
 정상 빈 응답·실패·미처리를 구분하고 거래일 무누락을 보장하지 않습니다. 현재 후보는 과거 당시 유니버스가 아니며 수정주가 이력은 배당 포함 총수익률이 아닙니다. 수동 유니버스·계좌·NAV에 자동 반영하지 않습니다. [저장 계약·재개·공식 출처·읽기 인터페이스](docs/candidate-price-history.md)를 참고하세요.
 
+## 후보 종목 가격 특성값 v1
+
+저장된 history 작업에서 기준일 이하의 수정주가 종가로 후보별 가격수익률·연율화 변동성·최대낙폭을 오프라인 계산합니다. 자격증명·OAuth·HTTP를 사용하지 않으며, 종목마다 관측일과 이력 길이를 독립적으로 처리합니다.
+
+```bash
+uv run phalanx market-data features calculate JOB_ID \
+  --as-of 2026-08-31 --code 005930 --code 0001A0
+uv run phalanx market-data features calculate JOB_ID \
+  --as-of 2026-08-31 --all-targets \
+  --history-db /absolute/private/history.sqlite3 \
+  --output /absolute/private/features-2026-08-31.json
+```
+
+`--as-of`는 작업의 요청 기간 안에 있어야 하며 `--code` 또는 `--all-targets` 중 하나를 명시합니다. N구간 지표에는 N+1개의 관측 종가가 필요합니다. 자료가 부족한 지표는 사유와 함께 `null`로 남기고 계산 가능한 지표는 유지합니다. 모든 선택 종목의 지표가 계산되면 종료 코드 `0`, 일부라도 계산 불가이면 JSON을 출력·저장한 뒤 `2`입니다. 기존 출력 파일은 덮어쓰지 않습니다.
+
+결과는 정확한 십진 문자열과 원천·소비 입력 해시, 계산 정책, 실제 사용 기간을 포함합니다. 거래일 무누락과 과거 시점 정보만 사용한 백테스트를 보장하지 않으며 가격수익률은 배당 포함 총수익률이 아닙니다. 종목 순위·매매 판단·비중 계산은 포함하지 않습니다. [계산식·입력 해시·부분 결과·종료 코드](docs/candidate-price-features.md)를 참고하세요.
+
 ## KIS 국내주식 일별 시세
 
 일별 시세 기능은 한국투자증권 실전투자 서버의 조회 전용 API를 사용합니다. [공식 open-trading-api 예제](https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice)의 계약에 따라 다음 endpoint와 TR ID를 고정합니다.
