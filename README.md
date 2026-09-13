@@ -413,6 +413,21 @@ uv run phalanx market-data features calculate JOB_ID \
 
 결과는 정확한 십진 문자열과 원천·소비 입력 해시, 계산 정책, 실제 사용 기간을 포함합니다. 거래일 무누락과 과거 시점 정보만 사용한 백테스트를 보장하지 않으며 가격수익률은 배당 포함 총수익률이 아닙니다. 종목 순위·매매 판단·비중 계산은 포함하지 않습니다. [계산식·입력 해시·부분 결과·종료 코드](docs/candidate-price-features.md)를 참고하세요.
 
+## 후보 평가·선정 v1
+
+기존 features JSON에서 명시한 단일 지표로 후보를 비교하고 최대 top개를 선정하는 오프라인 연구용 기준 선정기입니다. 원천 DB·discovery·자격증명·네트워크를 다시 조회하지 않습니다.
+
+```bash
+uv run phalanx candidates select \
+  --features /absolute/private/features.json \
+  --metric return_60 --top 10 --max-age-days 7 \
+  --output /absolute/private/selection.json
+```
+
+네 입력 옵션은 모두 필수이며 10·7은 기본값이나 검증된 투자 파라미터가 아닙니다. 수익률·최대낙폭은 큰 값, 변동성은 작은 값을 우선합니다. 입력의 최신 완료 가격 종점과 같은 종점·허용 가격 경과일·선택 지표 계산 가능 조건을 충족해야 순위에 참여합니다. 최신 종목의 이력이 부족해도 과거 종점 집단으로 후퇴하지 않습니다.
+
+동점은 코드 ASCII 순서로 결정하며 경쟁 순위와 최종 순번을 따로 보존합니다. 모든 후보를 selected/not_selected/unavailable로 남기고 selected_codes를 선정 순서대로 제공합니다. 부분 결과도 JSON으로 출력·저장하며 기존 파일은 덮어쓰지 않습니다. 완전 결과는 종료 코드 0, 부분 결과는 2입니다. 비중·주문·자동 유니버스 반영과 수익성 검증은 포함하지 않습니다. [정책·입력 검증·부분 결과·해석 한계](docs/candidate-selection.md)와 [합성 예제](examples/candidate-selection/README.md)를 참고하세요.
+
 ## KIS 국내주식 일별 시세
 
 일별 시세 기능은 한국투자증권 실전투자 서버의 조회 전용 API를 사용합니다. [공식 open-trading-api 예제](https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice)의 계약에 따라 다음 endpoint와 TR ID를 고정합니다.

@@ -117,6 +117,7 @@ from phalanx.portfolio.private_json_storage import (
 from phalanx.portfolio.volatility_overlay_trial_registry import (
     safe_volatility_overlay_failure_display,
 )
+from phalanx.selection.cli import app as candidates_app
 from phalanx.snapshots import SnapshotStorageError
 from phalanx.universe.errors import UniverseError
 from phalanx.universe.repository import JsonUniverseRepository
@@ -187,6 +188,7 @@ market_data_app.add_typer(features_app, name="features")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(nav_app, name="nav")
 app.add_typer(discovery_app, name="discovery")
+app.add_typer(candidates_app, name="candidates")
 
 
 def _console(*, stderr: bool = False) -> Console:

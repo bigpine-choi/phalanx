@@ -1,0 +1,198 @@
+{
+  "candidates": [
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "d7d81ddf92a31736e5d69d2c8e803dd2b9b28e6434bb4ec74290f580d1496795",
+      "eligible_observation_count": 61,
+      "last_close": "120",
+      "metric_rank": 1,
+      "ordinal": 0,
+      "reasons": [
+        {
+          "code": "SELECTED_TOP_N",
+          "description": "명시한 정책의 상위 범위에 선정되었습니다."
+        }
+      ],
+      "score": "0.2",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 61,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "0.2",
+        "window_end": "2026-08-20",
+        "window_start": "2026-06-21"
+      },
+      "selection_order": 1,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "0447de9084d68d7ef28d2bca78e7552d44afa3073a7819fdc4047065caae4df4",
+      "source_status": "completed",
+      "status": "selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "Synthetic candidate 1",
+        "policy_version": "synthetic-example",
+        "short_code": "0001A0",
+        "source_files": [],
+        "standard_code": "synthetic-standard-0"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 61,
+      "used_start": "2026-06-21"
+    },
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "4ba9bcc7aafee8f774fa62084c9488be10e6ded9603931a456a5665835216bb2",
+      "eligible_observation_count": 61,
+      "last_close": "110",
+      "metric_rank": 2,
+      "ordinal": 1,
+      "reasons": [
+        {
+          "code": "OUTSIDE_TOP_N",
+          "description": "평가 가능하지만 요청한 상위 범위 밖입니다."
+        }
+      ],
+      "score": "0.1",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 61,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "0.1",
+        "window_end": "2026-08-20",
+        "window_start": "2026-06-21"
+      },
+      "selection_order": 2,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "03d58a04274202b85bc77ba125d1a474eb69a20a617de1690ca7e7aa322d590b",
+      "source_status": "completed",
+      "status": "not_selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "Synthetic candidate 2",
+        "policy_version": "synthetic-example",
+        "short_code": "000001",
+        "source_files": [],
+        "standard_code": "synthetic-standard-1"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 61,
+      "used_start": "2026-06-21"
+    },
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "e20c4c753375d65476b2fb1b09f2d8b1bc64a344fa1943c594f686776e185836",
+      "eligible_observation_count": 21,
+      "last_close": "103",
+      "metric_rank": null,
+      "ordinal": 2,
+      "reasons": [
+        {
+          "code": "METRIC_UNAVAILABLE",
+          "description": "선택한 가격 지표를 계산할 수 없는 원천 결과입니다."
+        }
+      ],
+      "score": null,
+      "selected_feature": {
+        "available": false,
+        "available_observations": 21,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": "60개 관측 구간에는 61개 종가가 필요하지만 기준일 이하 관측은 21개입니다.",
+        "reason_code": "INSUFFICIENT_OBSERVATIONS",
+        "required_observations": 61,
+        "value": null,
+        "window_end": null,
+        "window_start": null
+      },
+      "selection_order": null,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "28221710f4df6704f7540891a742a900c7214fd9c6ff7869db7dd9b8dda6f110",
+      "source_status": "completed",
+      "status": "unavailable",
+      "target": {
+        "market": "KOSPI",
+        "name": "Synthetic candidate 3",
+        "policy_version": "synthetic-example",
+        "short_code": "000003",
+        "source_files": [],
+        "standard_code": "synthetic-standard-2"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 21,
+      "used_start": "2026-07-31"
+    }
+  ],
+  "comparison_scope": "provided_features_candidates",
+  "complete": false,
+  "eligible_count": 2,
+  "evaluated_at": "2026-09-13T00:00:00Z",
+  "evaluation_complete": false,
+  "not_selected_count": 1,
+  "point_in_time_backtest_guaranteed": false,
+  "policy": {
+    "max_age_days": 0,
+    "metric": "return_60",
+    "policy_id": "single_price_feature_rank_v1",
+    "rank_method": "competition",
+    "tie_breaker": "short_code_ascii_ascending",
+    "top": 1
+  },
+  "price_basis": "adjusted_close_price_return_excluding_dividends",
+  "reference_price_date": "2026-08-20",
+  "requested_top": 1,
+  "schema_version": "1",
+  "selected_codes": [
+    "0001A0"
+  ],
+  "selected_count": 1,
+  "selection_filled": true,
+  "shortfall": 0,
+  "sort_direction": "descending",
+  "source": {
+    "as_of": "2026-08-20",
+    "calculated_at": "2026-09-13T00:00:00Z",
+    "discovery_run_id": "synthetic-selection-example",
+    "feature_policy": {
+      "annualization_formula": "sample_std(simple_returns) * sqrt(252)",
+      "annualization_periods": 252,
+      "consumed_input_contract": "dated_closes_as_of_v1",
+      "decimal_precision": 50,
+      "decimal_rounding": "ROUND_HALF_EVEN",
+      "drawdown_intervals": [
+        60,
+        252
+      ],
+      "interval_basis": "consecutive_observed_closes",
+      "return_intervals": [
+        20,
+        60,
+        120,
+        252
+      ],
+      "variance_ddof": 1,
+      "version": "candidate_price_features_v1",
+      "volatility_intervals": [
+        20,
+        60
+      ]
+    },
+    "feature_schema_version": "1",
+    "features_complete": false,
+    "history_job_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input_sha256": "c445fb2c7b07d52b644e15866d83fbb5f6488e48774ab0a0a512701341f0232e",
+    "source_price_hashes_verified": false
+  },
+  "trading_day_completeness": "unverified",
+  "unavailable_count": 1
+}
