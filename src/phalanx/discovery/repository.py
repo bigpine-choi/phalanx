@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 from pydantic import ValidationError
 
-from phalanx.discovery.errors import DiscoveryStorageError
+from phalanx.discovery.errors import DiscoveryError, DiscoveryStorageError
 from phalanx.domain.discovery import Attempt, DiscoveryView, Market, Snapshot
 from phalanx.snapshots import (
     SnapshotStorageError,
@@ -278,3 +278,16 @@ class SqliteDiscoveryRepository:
             if hashlib.sha256(payload).hexdigest() != row["sha256"]:
                 raise DiscoveryStorageError()
             return payload
+
+    def load_successful_run(self, run_id: str) -> Snapshot:
+        """Read exactly the requested completed run; never fall back to another run."""
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if row is None:
+                raise DiscoveryError("RUN_NOT_FOUND", "지정한 discovery 실행이 없습니다.")
+            if row["status"] != "success" or row["snapshot_json"] is None:
+                raise DiscoveryError("RUN_NOT_SUCCESSFUL", "성공한 discovery 실행이 필요합니다.")
+            snapshot = Snapshot.model_validate_json(row["snapshot_json"])
+            if snapshot.run_id != run_id or snapshot.status != "success":
+                raise DiscoveryStorageError()
+            return snapshot

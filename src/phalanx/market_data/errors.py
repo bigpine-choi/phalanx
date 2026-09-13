@@ -16,7 +16,7 @@ class InvalidMarketDataRequestError(MarketDataError):
 
 
 class InvalidMarketDataStockCodeError(InvalidMarketDataRequestError):
-    """Raised when a requested stock code is not six ASCII digits."""
+    """Raised when a code violates the requested daily/current-price identifier contract."""
 
 
 class InvalidMarketDataRangeError(InvalidMarketDataRequestError):

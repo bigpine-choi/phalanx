@@ -37,6 +37,7 @@ from phalanx.market_data.errors import (
 )
 from phalanx.market_data.validation import (
     validate_daily_date_range,
+    validate_daily_stock_code,
     validate_market_data_stock_code,
 )
 
@@ -549,7 +550,7 @@ class KisDailyPriceClient:
     ) -> tuple[DailyBar, ...]:
         """Fetch a complete inclusive range and return bars oldest first."""
 
-        validated_code = validate_market_data_stock_code(stock_code)
+        validated_code = validate_daily_stock_code(stock_code)
         validated_start, validated_end = validate_daily_date_range(start, end)
         if self._client is not None:
             return self._fetch_all_pages(
@@ -692,16 +693,8 @@ class KisDailyPriceClient:
                     )
                 self._sleep(self._rate_limit_wait_seconds)
                 continue
-            if not is_success:
-                raise KisMarketDataHttpError(
-                    self._format_http_error(
-                        "The KIS daily-price request failed",
-                        response.status_code,
-                        metadata,
-                        token,
-                    )
-                )
-
+            # KIS can report token expiry as HTTP 500. Share the 401 retry
+            # allowance before classifying an unsuccessful status as an HTTP error.
             if self._is_expired_token_response(payload):
                 if not authentication_retry_used:
                     self._invalidate_token(token)
@@ -710,11 +703,32 @@ class KisDailyPriceClient:
                 raise KisMarketDataAuthenticationError(
                     "KIS rejected the renewed token for the daily-price request."
                 )
-            return parse_daily_bars_page(
-                payload,
-                stock_code=stock_code,
-                sensitive_values=self._sensitive_values(token),
-            )
+            if not is_success:
+                raise KisMarketDataHttpError(
+                    self._format_http_error(
+                        "The KIS daily-price request failed",
+                        response.status_code,
+                        metadata,
+                        token,
+                    ),
+                    status_code=response.status_code,
+                )
+
+            secrets = self._sensitive_values(token)
+            try:
+                return parse_daily_bars_page(
+                    payload,
+                    stock_code=stock_code,
+                    sensitive_values=secrets,
+                )
+            except KisMarketDataApiError as error:
+                # Stored diagnostics need the same bounded masking on every field,
+                # including provider error codes echoed into a job's error_code.
+                raise KisMarketDataApiError(
+                    rt_cd=_sanitize_error_field(error.rt_cd, secrets),
+                    msg_cd=_sanitize_error_field(error.msg_cd, secrets),
+                    msg1=_sanitize_error_field(error.msg1, secrets),
+                ) from None
 
     def _send_request(
         self,

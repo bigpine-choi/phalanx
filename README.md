@@ -376,6 +376,26 @@ ST 주권의 ETP 공백은 원시 공백·정규화 `null`로 보존하며, ST �
 공식 자료의 고정 커밋, 정책, 한계와 실제 수집 검증은
 [시장 후보 발굴 문서](docs/market-candidate-discovery.md)에 설명되어 있습니다.
 
+## 시장 후보 일봉 저장·재개 v1
+
+성공한 discovery 실행의 적격 후보를 고정하고, KIS 수정주가 OHLCV를 별도 SQLite에 저장합니다. `create`, `status`, `show`는 오프라인이고 `run`만 기존 KIS 자격증명·OAuth를 사용합니다.
+
+```bash
+uv run phalanx market-data history create \
+  --discovery-run-id RUN_ID --start 2026-01-01 --end 2026-09-11 \
+  --code 005930 --code 0001A0
+uv run phalanx market-data history run JOB_ID --max-symbols 1
+uv run phalanx market-data history run JOB_ID
+uv run phalanx market-data history status JOB_ID
+uv run phalanx market-data history show JOB_ID 0001A0
+```
+
+반복 `--code` 또는 `--all-eligible` 중 하나를 명시해야 하며 종료일은 서울 기준 오늘 이전이어야 합니다. 완료 종목은 건너뛰고 실패 종목은 `--retry-failed`로만 재시도합니다. 종목 하나의 전체 요청 기간과 완료 상태를 원자적으로 저장하며, 기간 변경·재수집은 새 작업으로 수행합니다. discovery 갱신은 기존 작업의 대상을 바꾸지 않습니다.
+
+기본 DB는 `~/.local/share/phalanx/market-data/history.sqlite3`입니다. 생성 시 `--discovery-db`와 `--history-db`, 실행·조회 시 `--history-db`로 경로를 지정할 수 있습니다. 일봉은 정확한 ASCII 숫자·대문자 6자리 코드를 보존하지만 공급자의 실제 조회 지원은 별도로 확인해야 합니다. 현재가·계좌 평가와 수동 유니버스의 숫자 전용 계약은 유지합니다.
+
+정상 빈 응답·실패·미처리를 구분하고 거래일 무누락을 보장하지 않습니다. 현재 후보는 과거 당시 유니버스가 아니며 수정주가 이력은 배당 포함 총수익률이 아닙니다. 수동 유니버스·계좌·NAV에 자동 반영하지 않습니다. [저장 계약·재개·공식 출처·읽기 인터페이스](docs/candidate-price-history.md)를 참고하세요.
+
 ## KIS 국내주식 일별 시세
 
 일별 시세 기능은 한국투자증권 실전투자 서버의 조회 전용 API를 사용합니다. [공식 open-trading-api 예제](https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice)의 계약에 따라 다음 endpoint와 TR ID를 고정합니다.
