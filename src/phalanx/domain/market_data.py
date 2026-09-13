@@ -15,6 +15,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -239,7 +240,7 @@ class DailyBar(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    stock_code: str = Field(pattern=r"^[0-9]{6}$")
+    stock_code: str = Field(pattern=r"^[0-9A-Z]{6}$")
     trade_date: date
     open_price: PositivePrice
     high_price: PositivePrice
@@ -249,7 +250,9 @@ class DailyBar(BaseModel):
 
     @field_validator("trade_date", mode="before")
     @classmethod
-    def _require_date_instance(cls, value: Any) -> Any:
+    def _require_date_instance(cls, value: Any, info: ValidationInfo) -> Any:
+        if info.mode == "json" and isinstance(value, str):
+            return date.fromisoformat(value)
         if type(value) is not date:
             raise ValueError("trade_date must be a date instance")
         return value

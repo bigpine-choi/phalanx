@@ -80,6 +80,7 @@ from phalanx.market_data.errors import (
     MarketDataError,
     ValuationPriceBundleCoherenceError,
 )
+from phalanx.market_data.history.cli import app as history_app
 from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
 from phalanx.nav.cli import app as nav_app
@@ -180,6 +181,7 @@ portfolio_app = typer.Typer(
 app.add_typer(account_app, name="account")
 app.add_typer(universe_app, name="universe")
 app.add_typer(market_data_app, name="market-data")
+market_data_app.add_typer(history_app, name="history")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(nav_app, name="nav")
 app.add_typer(discovery_app, name="discovery")

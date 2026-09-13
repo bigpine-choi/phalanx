@@ -1,4 +1,4 @@
-"""Shared validation for provider-neutral daily market-data requests."""
+"""Separate daily-history and numeric current-price identifier contracts."""
 
 from __future__ import annotations
 
@@ -33,4 +33,17 @@ def validate_daily_date_range(start: object, end: object) -> tuple[date, date]:
     return start, end
 
 
-__all__ = ["validate_daily_date_range", "validate_market_data_stock_code"]
+def validate_daily_stock_code(stock_code: object) -> str:
+    """Accept an exact ASCII identifier; provider query support is a separate matter."""
+    if not isinstance(stock_code, str) or re.fullmatch(r"[0-9A-Z]{6}", stock_code) is None:
+        raise InvalidMarketDataStockCodeError(
+            "일봉 종목코드는 정확한 ASCII 숫자·대문자 6자리여야 합니다. 예: 005930, 0001A0"
+        )
+    return stock_code
+
+
+__all__ = [
+    "validate_daily_date_range",
+    "validate_daily_stock_code",
+    "validate_market_data_stock_code",
+]

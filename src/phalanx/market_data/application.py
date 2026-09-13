@@ -23,6 +23,7 @@ from phalanx.market_data.errors import InvalidValuationPriceRequestError
 from phalanx.market_data.service import MarketDataService, StockDailyBars, ValuationPriceService
 from phalanx.market_data.validation import (
     validate_daily_date_range,
+    validate_daily_stock_code,
     validate_market_data_stock_code,
 )
 from phalanx.portfolio.private_json_storage import store_private_json_bytes
@@ -148,7 +149,7 @@ def run_production_daily_market_data(
 ) -> tuple[DailyBar, ...]:
     """Build the fixed real-account read-only graph for one stock."""
 
-    validated_code = validate_market_data_stock_code(stock_code)
+    validated_code = validate_daily_stock_code(stock_code)
     validated_start, validated_end = validate_daily_date_range(start, end)
     credentials = load_kis_credentials(credentials_path)
     with httpx.Client(transport=transport, timeout=_APPLICATION_TIMEOUT) as http_client:

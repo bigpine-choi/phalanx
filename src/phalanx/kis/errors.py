@@ -137,6 +137,10 @@ class KisMarketDataClientError(RuntimeError):
 class KisMarketDataHttpError(KisMarketDataClientError):
     """A market-data HTTP exchange failed without exposing request details."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class KisMarketDataRateLimitError(KisMarketDataHttpError):
     """KIS kept rejecting a market-data request after bounded rate-limit retries."""

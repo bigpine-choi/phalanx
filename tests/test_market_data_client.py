@@ -755,6 +755,64 @@ def test_client_fails_after_one_unauthorized_retry(client_factory: ClientFactory
     assert token_manager.get_calls == 2
 
 
+@pytest.mark.parametrize("first_status", [200, 401, 500])
+@pytest.mark.parametrize("second_status", [200, 401, 500])
+def test_client_shares_one_reauthentication_between_401_and_expiry_codes(
+    client_factory: ClientFactory, first_status: int, second_status: int
+) -> None:
+    tokens = StubTokenManager((_access_token(FIRST_TOKEN), _access_token(SECOND_TOKEN)))
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert len(requests) <= 2, "reauthentication must be bounded across response types"
+        status = (first_status, second_status)[len(requests) - 1]
+        if status == 401:
+            return httpx.Response(status, request=request)
+        return _api_error(request, msg_cd="EGW00123", msg1="expired", status_code=status)
+
+    with pytest.raises(KisMarketDataAuthenticationError):
+        KisDailyPriceClient(
+            _credentials(), tokens, client=client_factory(handler), request_interval_seconds=0
+        ).fetch_daily_bars("005930", START, END)
+    assert tokens.get_calls == 2
+    assert tokens.invalidated == [tokens.tokens[0]]
+    assert [r.headers["authorization"] for r in requests] == [
+        f"Bearer {FIRST_TOKEN}",
+        f"Bearer {SECOND_TOKEN}",
+    ]
+
+
+@pytest.mark.parametrize("expiry_status", [200, 500])
+def test_client_token_refresh_does_not_reset_rate_limit_attempts(
+    client_factory: ClientFactory, expiry_status: int
+) -> None:
+    tokens = StubTokenManager((_access_token(FIRST_TOKEN), _access_token(SECOND_TOKEN)))
+    clock = FakeClock()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert len(requests) <= 3
+        if len(requests) == 2:
+            return _api_error(request, msg_cd="EGW00123", msg1="expired", status_code=expiry_status)
+        return _api_error(request, msg_cd="EGW00201", msg1="rate limit")
+
+    with pytest.raises(KisMarketDataRateLimitError):
+        KisDailyPriceClient(
+            _credentials(),
+            tokens,
+            client=client_factory(handler),
+            request_interval_seconds=0,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+            rate_limit_max_retries=2,
+        ).fetch_daily_bars("005930", START, END)
+    assert len(requests) == 3
+    assert tokens.invalidated == [tokens.tokens[0]]
+    assert clock.sleeps == [61.0]
+
+
 def test_client_rejects_invalid_json(client_factory: ClientFactory) -> None:
     with pytest.raises(KisMarketDataProtocolError, match="not valid JSON"):
         KisDailyPriceClient(
