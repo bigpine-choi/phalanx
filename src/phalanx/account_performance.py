@@ -3,19 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import (
-    ROUND_HALF_EVEN,
-    Context,
-    Decimal,
-    DecimalException,
-    DivisionByZero,
-    FloatOperation,
-    InvalidOperation,
-    Overflow,
-    Underflow,
-    localcontext,
-)
+from decimal import Context, Decimal, DecimalException, localcontext
 
+from phalanx.decimal_math import financial_decimal_context
 from phalanx.domain.account import AccountSnapshot
 from phalanx.domain.account_performance import (
     AccountPerformance,
@@ -32,16 +22,7 @@ class AccountPerformanceError(RuntimeError):
 def account_performance_decimal_context() -> Context:
     """Return a fresh context independent of process-global Decimal settings."""
 
-    return Context(
-        prec=50,
-        rounding=ROUND_HALF_EVEN,
-        Emin=-999999,
-        Emax=999999,
-        capitals=1,
-        clamp=0,
-        flags=[],
-        traps=[InvalidOperation, DivisionByZero, Overflow, Underflow, FloatOperation],
-    )
+    return financial_decimal_context()
 
 
 def _utc_microseconds_between(start: datetime, end: datetime) -> int:
