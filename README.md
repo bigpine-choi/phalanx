@@ -443,6 +443,21 @@ uv run phalanx portfolio allocation-input \
 
 빈 선정·top 미달·이력 부족·날짜 불일치·위험모형이 지원하지 않는 영숫자 코드는 `input_ready=false`, `matrix=null`로 출력·저장합니다. 성공은 종료 코드 0, 정상 준비 불가는 2, 입력 모순은 65, 읽기·저장 오류는 66입니다. 공식 거래일 무누락은 검증하지 않습니다. 공분산·ERC·목표비중·매매계획은 후속 단계입니다. [상세 계약](docs/selection-allocation-input.md)과 [합성 입력 재현](examples/selection-allocation-input/README.md)을 참고하세요.
 
+## 선정 종목 단일 기준일 ERC 목표비중 v1
+
+준비된 선정 종목의 마지막 가격 관측일 하나에서 네 위험 시나리오의 ERC 연구용 목표비중을 독립 계산합니다. 위 입력 준비 서비스를 한 번 호출하고, 한 위험 snapshot을 기존 위험모형·solver에 연결합니다.
+
+```bash
+uv run phalanx portfolio allocation-targets \
+  --selection /absolute/private/selection.json \
+  --history-db /absolute/private/history.sqlite3 \
+  --output /absolute/private/allocation-targets.json
+```
+
+동일 위험예산·양의 비중·종목당 20% 상한·합계 1을 유지하며 기존 `reconciled_weights`를 그대로 사용합니다. **4종목 이하는 제약 실패**, 5종목은 각각 20%인 경계입니다. 최소 6종목 성공 예제는 [합성 입력 재현](examples/selection-allocation-targets/README.md)에 있습니다.
+
+전체 성공은 종료 0, 입력 준비 불가·계산 실패·부분 성공은 2이며 결과 JSON에 구별해 보존합니다. 잘못된 원천 입력 65와 읽기·저장 오류 66은 기존과 같습니다. 휴일 선정 기준일은 실제 관측 종점과 따로 보존하고, 네 결과를 평균·혼합하거나 추천 전략으로 선택하지 않습니다. 결과는 위험자산 내부의 연구용 배분안이며 실제 계좌 실행 목표·가용현금·정수주·주문·변동성/현금 overlay·전체 과거 백테스트는 포함하지 않습니다. [상세 계약과 한계](docs/selection-allocation-targets.md)를 참고하세요.
+
 ## KIS 국내주식 일별 시세
 
 일별 시세 기능은 한국투자증권 실전투자 서버의 조회 전용 API를 사용합니다. [공식 open-trading-api 예제](https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice)의 계약에 따라 다음 endpoint와 TR ID를 고정합니다.
