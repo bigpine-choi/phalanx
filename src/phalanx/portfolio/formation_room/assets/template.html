@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <meta name="color-scheme" content="dark">
+    <title>PHALANX · 편성실</title>
+    <style>{{ROOM_CSS}}</style>
+  </head>
+  <body>
+    <a class="skip-link" href="#scenario-tabs">시나리오로 이동</a>
+    <div class="room-shell">
+      <header class="topbar">
+        <div class="brand">
+          <svg viewBox="0 0 42 44" aria-hidden="true">
+            <path d="M21 3 38 12v20L21 41 4 32V12Z"/>
+            <path d="M12 29V15l9-5 9 5v6l-9 5-9-5m9 5v9m-1-18 9 5"/>
+          </svg>
+          <div>
+            <span class="wordmark">PHALANX</span>
+            <span class="brand-caption">편성실 · 오프라인 화면 시제품</span>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <span class="offline-label">
+            <i>
+            </i> 저장된 결과 · 오프라인</span>
+          <button id="settings-open" class="settings-open" type="button" aria-haspopup="dialog">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M4 3v14M10 3v14M16 3v14M1 7h6m0 6h6m0-7h6"/>
+            </svg>
+            <span>음향 · 모션</span>
+            <span id="sound-state" class="sound-state">무음</span>
+          </button>
+        </div>
+      </header>
+      <main>
+        <section class="heading-row" aria-labelledby="room-title">
+          <div>
+            <p class="eyebrow">저장된 선정 결과의 연구용 배분</p>
+            <h1 id="room-title">위험자산 편성실<span class="title-dot">.</span>
+            </h1>
+            <p class="subtitle">종목과 비중을 한눈에. 네 가지 위험 관점의 연구용 배분을 살펴봅니다.</p>
+          </div>
+          <div class="source-summary">
+            <span id="overall-status" class="status-badge">
+            </span>
+            <dl>
+              <div>
+                <dt>입력 파일</dt>
+                <dd id="source-name">
+                </dd>
+              </div>
+              <div>
+                <dt>계산일</dt>
+                <dd id="calculation-date">
+                </dd>
+                <dt>선정일</dt>
+                <dd id="selection-date">
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+        <section class="metrics" aria-label="결과 요약">
+          <p><span>선정 종목</span><strong id="selected-count"></strong><span>종목</span></p>
+          <p><span>수익률 관측</span><strong id="observation-count"></strong><span>개</span></p>
+          <p><span>성공 시나리오</span><strong id="success-count"></strong><span>/ 4</span><span id="scenario-marks" class="four-marks" aria-hidden="true"></span></p>
+          <span id="demo-badge" class="demo-badge" hidden>합성 데이터 데모</span>
+        </section>
+        <section class="formation-section" aria-labelledby="formation-title">
+          <div class="section-heading">
+            <h2 id="formation-title">위험 시나리오</h2>
+            <p>네 결과는 독립적입니다. 평균·혼합·추천을 하지 않습니다.</p>
+          </div>
+          <div id="scenario-tabs" class="scenario-tabs" role="tablist" aria-label="위험 시나리오"></div>
+          <div class="formation-grid" id="formation-panel" role="tabpanel" tabindex="0">
+            <section class="holdings-panel" aria-labelledby="holdings-title">
+              <div class="composition-heading">
+                <div><h3 id="holdings-title">포트폴리오 구성</h3><p>시나리오를 바꿔도 종목 색상은 같습니다.</p></div>
+                <div class="current-volatility"><span>추정 연환산 변동성</span><strong id="volatility"></strong></div>
+              </div>
+              <div id="scenario-notice" class="scenario-notice" hidden></div>
+              <div id="composition" class="composition">
+                <div class="composition-scale"><span>위험자산 전체 배분</span><strong>100%</strong></div>
+                <div id="composition-bar" class="composition-bar" role="group" aria-label="위험자산 100% 포트폴리오 구성. 화살표 키로 종목 탐색"></div>
+                <p class="composition-help">색상 구간이나 아래 종목을 선택하면 상세를 볼 수 있습니다.</p>
+              </div>
+              <div id="holdings-list" class="holdings-list" aria-label="선정 순서의 종목 목록"></div>
+              <div class="panel-foot"><span>카드 막대의 전체 길이 = 종목당 상한 20%</span><span>선정 순서 유지</span></div>
+            </section>
+            <aside id="holding-detail" class="detail-panel" aria-labelledby="detail-title">
+              <div class="detail-topline"><span>선택 종목 상세</span><span id="detail-number" class="detail-number"></span></div>
+              <div class="detail-identity">
+                <span class="asset-swatch" id="detail-swatch" aria-hidden="true"></span>
+                <div><h3 id="detail-title"></h3><p id="detail-code" class="detail-code"></p></div>
+              </div>
+              <p id="detail-name-status" class="detail-name-status"></p>
+              <div class="detail-weight"><span>목표비중</span><strong id="detail-weight"></strong></div>
+              <dl class="detail-fields">
+                <div><dt>상대 위험기여도</dt><dd id="detail-risk"></dd></div>
+                <div><dt>비중 하한 / 상한</dt><dd id="detail-bounds"></dd></div>
+                <div><dt>상한·하한 적용 상태</dt><dd id="detail-bound-state"></dd></div>
+                <div><dt>가격 관측 수</dt><dd id="detail-observations"></dd></div>
+                <div><dt>최근 적격일</dt><dd id="detail-last-date"></dd></div>
+              </dl>
+              <span id="detail-bound" class="bound-badge"></span>
+            </aside>
+          </div>
+        </section>
+        <details id="evidence-panel" class="evidence-panel">
+          <summary>
+            <span>
+              <span class="evidence-icon">≡</span> 계산 근거와 원본 수치</span>
+            <span class="evidence-hint">관측 기간 · fingerprint · Decimal 비중 · 데이터 한계 <b aria-hidden="true">+</b>
+            </span>
+          </summary>
+          <div class="evidence-content">
+            <div class="evidence-dates">
+              <div>
+                <span>관측 시작</span>
+                <strong id="used-start">
+                </strong>
+              </div>
+              <div>
+                <span>관측 종료</span>
+                <strong id="used-end">
+                </strong>
+              </div>
+              <div>
+                <span>참조 가격일</span>
+                <strong id="reference-price-date">
+                </strong>
+              </div>
+            </div>
+            <section>
+              <h3>준비·계산 상태</h3>
+              <ul id="evidence-reasons" class="reason-list">
+              </ul>
+            </section>
+            <section>
+              <h3>원본 Decimal 목표비중 · 현재 시나리오</h3>
+              <div id="exact-weights" class="exact-weights">
+              </div>
+            </section>
+            <section>
+              <h3>입력 식별과 계산 fingerprint</h3>
+              <p class="evidence-description">SHA-256은 파일 식별용입니다. 진위 인증이나 전체 모형 재검증을 뜻하지 않습니다.</p>
+              <dl id="fingerprints" class="fingerprints">
+              </dl>
+            </section>
+            <section>
+              <h3>자료의 범위와 한계</h3>
+              <ul id="limitations" class="limitation-list">
+              </ul>
+            </section>
+          </div>
+        </details>
+      </main>
+      <footer>
+        <span>
+          <i>
+          </i> 위험자산 내부의 연구용 배분안</span>
+        <p>실제 계좌의 실행 목표나 검증된 추천 포트폴리오가 아닙니다.</p>
+        <span class="prototype-label">오프라인 화면 시제품</span>
+      </footer>
+    </div>
+    <p id="live-status" class="sr-only" aria-live="polite" aria-atomic="true">
+    </p>
+    <dialog id="settings-dialog" aria-labelledby="settings-title" aria-describedby="settings-description">
+      <div class="dialog-heading">
+        <div>
+          <h2 id="settings-title">음향 · 모션 설정</h2>
+        </div>
+        <button id="settings-close" class="icon-button" aria-label="설정 닫기" type="button">×</button>
+      </div>
+      <p id="settings-description" class="dialog-description">처음에는 항상 무음입니다. 소리를 켠 뒤에도 음악은 직접 시작합니다.</p>
+      <div class="audio-master">
+        <div>
+          <strong>전체 음향</strong>
+          <p id="audio-status">무음 · 직접 켜기 전에는 재생되지 않습니다.</p>
+        </div>
+        <button id="audio-enable" class="primary-button" type="button">소리 켜기</button>
+        <button id="audio-mute" class="secondary-button" type="button" disabled>전체 무음</button>
+      </div>
+      <div class="volume-row">
+        <label for="sfx-volume">효과음 음량</label>
+        <input id="sfx-volume" type="range" min="0" max="100" value="22">
+        <output id="sfx-volume-label" for="sfx-volume">22%</output>
+      </div>
+      <div class="volume-row">
+        <label for="music-volume">배경음 음량</label>
+        <input id="music-volume" type="range" min="0" max="100" value="16">
+        <output id="music-volume-label" for="music-volume">16%</output>
+      </div>
+      <div class="audio-actions">
+        <button id="audio-preview" class="secondary-button" type="button">효과음 미리듣기</button>
+        <button id="music-start" class="secondary-button" type="button">음악 시작</button>
+        <button id="music-stop" class="secondary-button" type="button" disabled>음악 정지</button>
+      </div>
+      <p class="audio-caption">코드로 합성한 프로토타입 배경음악 · 차분한 선율과 화성의 루프<br>화면이 숨겨지면 모든 음향을 멈춥니다. 돌아온 뒤 직접 재개해 주세요.</p>
+      <div class="motion-row">
+        <div>
+          <label for="reduce-motion">화면 모션 축소</label>
+          <p>시스템의 모션 축소 설정도 따릅니다.</p>
+        </div>
+        <input id="reduce-motion" type="checkbox">
+      </div>
+      <p id="settings-storage" class="settings-storage">음향·모션 설정만 이 브라우저에 저장합니다. 투자 데이터는 저장하지 않습니다.</p>
+      <p id="audio-notice" class="audio-notice" role="status">
+      </p>
+      <div class="dialog-footer">
+        <button id="settings-done" class="primary-button" type="button">설정 확인</button>
+      </div>
+    </dialog>
+    <script id="room-data" type="application/json">{{ROOM_DATA}}</script>
+    <script>{{ROOM_AUDIO}}</script>
+    <script>{{ROOM_JS}}</script>
+  </body>
+</html>

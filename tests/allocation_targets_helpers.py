@@ -29,6 +29,7 @@ def target_inputs(
     top=None,
     degenerate=False,
     failed_candidate=False,
+    names=None,
 ):
     codes = CODES[:size] if codes is None else codes
     days = []
@@ -63,6 +64,13 @@ def target_inputs(
     view = view.model_copy(
         update={"job": view.job.model_copy(update={"end": max(days[-1], as_of)})}
     )
+    if names is not None:
+        # Source metadata precedes persistence, features, selection and every hash.
+        targets = tuple(
+            target.model_copy(update={"name": names.get(target.short_code, target.name)})
+            for target in view.job.targets
+        )
+        view = view.model_copy(update={"job": view.job.model_copy(update={"targets": targets})})
     repository = SqliteHistoryRepository(directory / "history" / "history.sqlite3")
     repository.create(view)
     features = PriceFeatureService(repository, clock=lambda: NOW).calculate(
