@@ -112,6 +112,7 @@ from phalanx.portfolio.errors import (
     RiskModelTrialStorageError,
     VolatilityOverlayTrialStorageError,
 )
+from phalanx.portfolio.formation_room.cli import formation_room
 from phalanx.portfolio.private_json_storage import (
     PrivateJsonAlreadyExistsError,
     PrivateJsonStorageError,
@@ -190,6 +191,7 @@ market_data_app.add_typer(features_app, name="features")
 app.add_typer(portfolio_app, name="portfolio")
 portfolio_app.command("allocation-input")(allocation_input)
 portfolio_app.command("allocation-targets")(allocation_targets)
+portfolio_app.command("formation-room")(formation_room)
 app.add_typer(nav_app, name="nav")
 app.add_typer(discovery_app, name="discovery")
 app.add_typer(candidates_app, name="candidates")

@@ -458,6 +458,22 @@ uv run phalanx portfolio allocation-targets \
 
 전체 성공은 종료 0, 입력 준비 불가·계산 실패·부분 성공은 2이며 결과 JSON에 구별해 보존합니다. 잘못된 원천 입력 65와 읽기·저장 오류 66은 기존과 같습니다. 휴일 선정 기준일은 실제 관측 종점과 따로 보존하고, 네 결과를 평균·혼합하거나 추천 전략으로 선택하지 않습니다. 결과는 위험자산 내부의 연구용 배분안이며 실제 계좌 실행 목표·가용현금·정수주·주문·변동성/현금 overlay·전체 과거 백테스트는 포함하지 않습니다. [상세 계약과 한계](docs/selection-allocation-targets.md)를 참고하세요.
 
+## Formation Room v1 — 오프라인 편성실
+
+저장된 ERC 목표비중 JSON을 한 파일의 편성실 HTML로 보여줍니다. 네 시나리오의 변동성·전체 100% 구성도·종목 상세·계산 근거로 **위험자산 내부 연구용 배분**을 조회하며, 원본 계산이나 실제 계좌를 다시 호출하지 않습니다. 향후 Windows 설치형 앱에 내장할 오프라인 화면 시제품입니다.
+
+```bash
+uv run phalanx portfolio formation-room \
+  --targets /absolute/private/allocation-targets.json \
+  --output /absolute/private/formation-room.html
+```
+
+두 옵션은 필수이며 기존 출력은 덮어쓰지 않습니다. 유효한 실패 결과 화면도 종료 0, 입력 오류 65, 읽기·저장 오류 66입니다. HTML 한 파일을 브라우저로 열면 서버·CDN·외부 폰트 없이 동작합니다. WSL에서는 `explorer.exe "$(wslpath -w /absolute/private)"`로 폴더를 열거나 HTML을 Windows의 새 폴더에 복사해 엽니다. 브라우저는 자동 실행하지 않습니다.
+
+선택적인 `--selection /absolute/private/selection.json`으로 원본 선정 결과의 회사명을 연결할 수 있습니다. 원본 파일 해시와 코드·기준일·정책 등 대응 근거가 일치할 때만 이름을 표시하며, 미제공·이름 누락은 코드와 `이름 미확인`으로 표시합니다. 합성 예제는 생성기가 전달한 명시적 메타데이터로 `합성 데이터 데모` 배지를 표시합니다.
+
+처음에는 무음이며 명시적인 소리 켜기 이후 효과음과 **코드로 합성한 프로토타입 배경음악**을 사용할 수 있습니다. 시작 대기 중에도 전체 무음/취소가 가능합니다. 음향·모션 설정만 보관하고, 브라우저 정책상 저장이 막히면 세션 설정으로 동작합니다. 화면용 projection 검증은 전체 위험모형 재검증이 아닙니다. [입력·화면·음향 계약과 한계](docs/formation-room.md), [합성 상태·이름 경계 예제와 직접 확인 방법](examples/formation-room/README.md)을 참고하세요.
+
 ## KIS 국내주식 일별 시세
 
 일별 시세 기능은 한국투자증권 실전투자 서버의 조회 전용 API를 사용합니다. [공식 open-trading-api 예제](https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice)의 계약에 따라 다음 endpoint와 TR ID를 고정합니다.
