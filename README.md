@@ -428,6 +428,21 @@ uv run phalanx candidates select \
 
 동점은 코드 ASCII 순서로 결정하며 경쟁 순위와 최종 순번을 따로 보존합니다. 모든 후보를 selected/not_selected/unavailable로 남기고 selected_codes를 선정 순서대로 제공합니다. 부분 결과도 JSON으로 출력·저장하며 기존 파일은 덮어쓰지 않습니다. 완전 결과는 종료 코드 0, 부분 결과는 2입니다. 비중·주문·자동 유니버스 반영과 수익성 검증은 포함하지 않습니다. [정책·입력 검증·부분 결과·해석 한계](docs/candidate-selection.md)와 [합성 예제](examples/candidate-selection/README.md)를 참고하세요.
 
+## 선정 결과 → 배분 입력 v1
+
+선정 JSON과 지정한 저장 history DB에서 기존 위험모형용 수익률 행렬을 준비합니다. 네트워크·자격증명 접근 없이 선정 순서와 Decimal 값을 보존합니다.
+
+```bash
+uv run phalanx portfolio allocation-input \
+  --selection /absolute/private/selection.json \
+  --history-db /absolute/private/history.sqlite3 \
+  --output /absolute/private/allocation-input.json
+```
+
+`--selection`, `--history-db`는 필수이며 `--output`은 선택입니다. `strict_observed_window_v1`은 겹치는 기간의 관측일 합집합에서 최근 최대 757개 종가 날짜를 검사하고, 한 종목이라도 날짜가 빠지면 입력 준비를 차단합니다. 최소 **504개 수익률에는 종가 505개**가 필요합니다. 선정이 채워졌다면 비선정 후보로 인한 `complete=false`는 허용합니다.
+
+빈 선정·top 미달·이력 부족·날짜 불일치·위험모형이 지원하지 않는 영숫자 코드는 `input_ready=false`, `matrix=null`로 출력·저장합니다. 성공은 종료 코드 0, 정상 준비 불가는 2, 입력 모순은 65, 읽기·저장 오류는 66입니다. 공식 거래일 무누락은 검증하지 않습니다. 공분산·ERC·목표비중·매매계획은 후속 단계입니다. [상세 계약](docs/selection-allocation-input.md)과 [합성 입력 재현](examples/selection-allocation-input/README.md)을 참고하세요.
+
 ## KIS 국내주식 일별 시세
 
 일별 시세 기능은 한국투자증권 실전투자 서버의 조회 전용 API를 사용합니다. [공식 open-trading-api 예제](https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice)의 계약에 따라 다음 endpoint와 TR ID를 고정합니다.
