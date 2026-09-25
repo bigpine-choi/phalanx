@@ -86,6 +86,7 @@ from phalanx.market_data.service import StockDailyBars
 from phalanx.market_data.validation import validate_daily_date_range
 from phalanx.nav.cli import app as nav_app
 from phalanx.portfolio.allocation_input.cli import allocation_input
+from phalanx.portfolio.allocation_targets.cli import allocation_targets
 from phalanx.portfolio.application import (
     AllocationResearchApplicationResult,
     ConstrainedErcResearchApplicationResult,
@@ -188,6 +189,7 @@ market_data_app.add_typer(history_app, name="history")
 market_data_app.add_typer(features_app, name="features")
 app.add_typer(portfolio_app, name="portfolio")
 portfolio_app.command("allocation-input")(allocation_input)
+portfolio_app.command("allocation-targets")(allocation_targets)
 app.add_typer(nav_app, name="nav")
 app.add_typer(discovery_app, name="discovery")
 app.add_typer(candidates_app, name="candidates")
