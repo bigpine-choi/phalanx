@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; frame-src about:; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="dark">
+<title>PHALANX · 편성실</title>
+<style>{{SHELL_CSS}}</style>
+</head>
+<body>
+<header class="desktop-header">
+  <div class="desktop-brand"><strong>PHALANX<span> / 편성실</span></strong><p>Windows · 저장 결과 조회와 목표비중 계산</p></div>
+  <div class="desktop-actions"><button id="show-inputs" type="button" disabled aria-expanded="true">파일 · 계산</button><button id="save-result" type="button" disabled>결과 JSON 저장</button></div>
+</header>
+<main>
+<section id="inputs" class="inputs" aria-label="결과 열기와 새 계산">
+  <form id="open-form" class="workflow">
+    <h1>저장 결과 열기</h1>
+    <p>목표비중 JSON을 표시합니다. 원본 selection을 연결하면 기업명을 확인할 수 있습니다.</p>
+    <div class="file-row"><button id="pick-targets" type="button" disabled>목표비중 JSON 선택</button><span id="targets-name" class="file-name">선택 안 됨</span></div>
+    <div class="file-row"><button id="pick-open-selection" type="button" disabled>원본 selection 선택 · 선택 사항</button><span id="open-selection-name" class="file-name">이름 미확인으로 열기</span><button id="clear-open-selection" class="quiet" type="button" disabled aria-label="원본 selection 선택 해제">해제</button></div>
+    <button id="open-result" class="primary" type="submit" disabled>편성실 열기</button>
+  </form>
+  <form id="calculate-form" class="workflow">
+    <h2>새 목표비중 계산</h2>
+    <p>선정 파일과 Windows 로컬 history DB로 기존 네 가지 위험 시나리오를 계산합니다.</p>
+    <div class="file-row"><button id="pick-calc-selection" type="button" disabled>selection JSON 선택</button><span id="calc-selection-name" class="file-name">선택 안 됨</span></div>
+    <div class="file-row"><button id="pick-history" type="button" disabled>history DB 선택</button><span id="history-name" class="file-name">선택 안 됨</span></div>
+    <button id="calculate" class="primary" type="submit" disabled>목표비중 계산</button>
+  </form>
+</section>
+<div class="status-strip"><p id="operation-status" role="status" aria-live="polite">Windows 연결을 준비하고 있습니다.</p><button id="retry-status" type="button" hidden disabled>작업 상태 다시 확인</button><p id="save-status" role="status">표시할 결과 없음</p></div>
+<p id="notice" class="notice" role="alert" hidden></p>
+<div id="room-host" class="room-host" hidden></div>
+<section id="welcome" class="welcome"><span class="welcome-mark" aria-hidden="true">Φ</span><h2>위험을 나누고, 구성을 살펴봅니다.</h2><p>파일을 선택하면 같은 창에서 기업별 비중과 계산 근거를 확인할 수 있습니다.</p><p>계산 중 창을 닫으면 작업이 끝난 뒤 종료합니다. 음향은 항상 무음으로 시작합니다.</p></section>
+</main>
+<script>{{SHELL_JS}}</script>
+</body>
+</html>
