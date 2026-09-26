@@ -1,6 +1,6 @@
-# ADR: 원정군 사령부의 UE5 검증과 Python 연결
+# ADR: 원정군 사령부의 UE5 채택과 Python 연결 검증
 
-상태: **UE5 우선 검증 권고 · 최종 엔진/지원 사양 미확정 · 구현 전**. 2026-09-26.
+상태: **UE5 채택 확정 · 구체 버전/구현 방식/지원 사양 후속 검증 · 구현 전**. 조사일 2026-09-26, 채택 결정일 2026-09-27.
 현재 요구/미술은 [사령부 사양](../expedition-headquarters/spec.md), 자산/권리/대형 파일 보관은
 [자산 계획](../expedition-headquarters/assets.md)에 관리한다. [SF 기술 문서](command-bridge-rendering.md)는 폐기된 방향의 이력이다.
 
@@ -71,14 +71,27 @@ nvidia-smi --query-gpu=name,memory.total,driver_version,power.limit --format=csv
 Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object DeviceID,Size,FreeSpace
 ```
 
-## 2. UE5 우선 검증의 근거와 남은 판단
+## 2. UE5 채택 결정과 후속 검증
+
+**2026-09-27 사용자 결정으로 팔랑크스 게임 클라이언트 엔진은 Unreal Engine 5(UE5)로 최종
+채택했다.** 기존의 우선 검증 후보·최종 채택 미확정 상태를 이 결정으로 갱신한다. 이 결정은
+실행 검증 결과가 아니며, 아래 항목의 완료를 뜻하지 않는다.
+
+| 항목 | 현재 결정과 후속 확인 |
+|---|---|
+| 게임 클라이언트 엔진 | **UE5 채택 확정**. 후속 T0/P0를 UE5로 진행 |
+| 구체 엔진 버전 | 정확한 UE patch·플러그인 조합 미선정. 공식 호환 범위와 실제 빌드로 고정 |
+| Windows 개발환경 | 확인된 노트북을 첫 환경으로 사용. 실제 UE/VS/MSVC/SDK 경로·버전과 빌드 가능 여부는 후속 확인 |
+| Python 연결 | 기존 Python 계산·Decimal 처리·원본 저장을 유지. 별도 native Windows Python과 framed stdio는 검증할 연결 설계안 |
+| 패키징 | UE 실행본과 backend bundle의 구성·의존성·종료를 실제 Windows 패키지에서 검증 |
+| 성능·지원 사양 | 대표 장면과 실제 분석을 함께 측정한 뒤 설정별 성능 목표·최소/권장 지원 범위를 결정. 현재 측정 완료나 성능 보장 없음 |
 
 다음 표의 왼쪽은 **공식 문서상 기능/제약**, 오른쪽은 **팔랑크스에 대한 설계 판단**이다.
 기능 존재가 미술 품질·생산성·실제 장비 성능을 보장하지 않는다.
 
 | 공식 근거 | 사령부에 적용할 판단/불확실성 |
 |---|---|
-| [Control Rig](https://dev.epicgames.com/documentation/unreal-engine/how-to-create-control-rigs-in-unreal-engine), [Animation Blueprint](https://dev.epicgames.com/documentation/unreal-engine/animation-blueprints-in-unreal-engine) | 지도 지시·시선·자세 전이와 손/탁자 접점을 하나의 제작 과정에서 다듬을 수 있어 우선 후보에 적합. 최종 방향 인물/rig 확보와 수작업 보정 필요 |
+| [Control Rig](https://dev.epicgames.com/documentation/unreal-engine/how-to-create-control-rigs-in-unreal-engine), [Animation Blueprint](https://dev.epicgames.com/documentation/unreal-engine/animation-blueprints-in-unreal-engine) | 지도 지시·시선·자세 전이와 손/탁자 접점을 하나의 제작 과정에서 다듬을 수 있어 채택 방향의 제작 도구로 적합하다고 판단. 최종 방향 인물/rig 확보와 수작업 보정 필요 |
 | [Chaos Clothing Tool](https://dev.epicgames.com/documentation/unreal-engine/clothing-tool-in-unreal-engine) | 천막/군기/복식의 필요한 부분에 시뮬레이션 적용 후보. 고정점·충돌·관통·CPU 비용은 별도 검증 |
 | [Lumen](https://dev.epicgames.com/documentation/unreal-engine/lumen-global-illumination-and-reflections-in-unreal-engine) | 석양·천막·청동의 동적 간접광/반사 후보. Lumen GI와 정적 lightmap GI를 동시에 쓴다고 설계하지 않음. 실제 선택 방식별 화면과 비용 측정 |
 | [Niagara](https://dev.epicgames.com/documentation/unreal-engine/overview-of-niagara-effects-for-unreal-engine) | 불꽃·연기·먼지를 다른 emitter/system으로 구성 가능. 반투명 overdraw와 light 수는 초고사양 목표에서도 예산 필요 |
@@ -91,13 +104,14 @@ MSVC 최소14.38, Windows SDK 최소10.0.22621.0이 안내돼 있다. 이는 **�
 현재 설치값/제품 최소 사양이 아니다. 후속 착수 시 선택한 UE의 정확한 patch와 지원 SDK/MSVC,
 플러그인 버전을 고정한다. 최신 엔진 무조건 채택이나 대형 설치는 이번 작업에 포함하지 않는다.
 
-**권고:** UE5 + UMG + 별도 native Windows Python backend를 우선 검증한다. 먼저 자산 없는
-T0에서 실제 계산·표시·정상 종료를 확인하고, 이후 기존 사령부 시제품(P0)에 통합한다.
-인물·천·빛·효과의 제작 도구가 이번 미적 위험을 시험하기에 적합하다는 판단이다. 현재 Python
-정확성을 옮겨 쓰는 것보다 연결/표시 어댑터를 추가하는 편이 책임을 유지한다.
+**구현 설계안:** 채택한 UE5에서 UMG + 별도 native Windows Python backend를 검증한다.
+먼저 자산 없는 T0에서 실제 계산·표시·정상 종료를 확인하고, 이후 기존 사령부 시제품(P0)에
+통합한다. 인물·천·빛·효과의 제작 도구가 이번 미적 위험을 시험하기에 적합하다는 판단이며,
+이 판단만으로 실제 품질·성능을 통과시키지 않는다. 기존 Python 정확성은 유지하고 연결/표시
+어댑터를 추가해 책임을 분리한다.
 
-Unity/Godot/WebView의 과거 비교는 이력으로만 남긴다. UE의 구조적 배포/제작/품질/성능 제약이
-작은 장면에서 확인되면 대안을 다시 비교한다. 엔진 여러 개를 동시에 시제품으로 만들지 않는다.
+Unity/Godot/WebView의 과거 비교는 이력으로 보존한다. 후속 실험은 채택한 UE5에서 구체적인
+연결·배포·제작·품질·성능 조건을 확인하는 단계다.
 보급형 대응을 이유로 사령부 미술 목표를 먼저 낮추지 않으며, 초고사양 목표 역시 무제한
 광원·texture·cloth 비용을 허용한다는 뜻은 아니다.
 
@@ -387,20 +401,23 @@ frame 목표를 맞추지 않는다. 설정 변경 시 같은 환경의 직접 P
 [DXGI budget/usage](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_4/ns-dxgi1_4-dxgi_query_video_memory_info)를
 함께 기록한다. 개발 에디터 trace와 제품 실행본 trace를 구분한다.
 
-### 3) 미술 합격과 최종 결정
+### 3) 미술 합격과 후속 사양 결정
 
 [사양의 미술 완료 기준](../expedition-headquarters/spec.md#6-품질-단계와-미술-완료-기준)에 따라
 구도·재질·조명·인물·반응·금융 정보·실제 청취를 판정한다. 기능·운영/성능·미술은 각각
-`통과/실패/미검증`으로 남기고 서로 대체하지 않는다. 세 항목을 만족한 작은 Windows 장면을
-근거로 엔진 채택을 권고하며, 제작 시간·권리·배포 비용도 포함한다. 실험 결과를 다섯 참모·
-승마·대규모 야영지의 성능으로 확대 해석하지 않는다. 부케팔로스는 다음 독립 제작 단계다.
+`통과/실패/미검증`으로 남기고 서로 대체하지 않는다. UE5 채택은 사용자 결정으로 확정됐으며,
+세 항목의 실측 결과와 제작 시간·권리·배포 비용을 바탕으로 구체 버전·구현 방식·품질 설정과
+지원 사양을 정한다. 실험 결과를 다섯 참모·승마·대규모 야영지의 성능으로 확대 해석하지 않는다.
+부케팔로스는 다음 독립 제작 단계다.
 
 ## 6. 조사 이력과 이번 문서 등록 범위
 
 2026-09-26 초기 설계 조사에서는 코드/문서 읽기, native Windows 조회, 공식 자료 조사와 문서
 작성·검증을 수행했다. 당시 staging·commit·push·PR은 하지 않았다. 이번 검토·제출은 지정된
 여섯 설계 문서만 보완·검증하고 문서 커밋과 Draft PR로 등록하는 범위다. 환경 수치는 앞선
-조사의 시각/출처를 유지하며 이번에 재측정한 것으로 보고하지 않는다.
+조사의 시각/출처를 유지하며 이번에 재측정한 것으로 보고하지 않는다. 2026-09-27 후속 사용자
+결정인 UE5 채택 확정은 현재 사령부 문서 3개의 별도 후속 커밋으로 반영하고 같은 Draft PR을
+갱신한다. 새로운 실행 검증 증거로 기록하지 않는다.
 
 신규 게임·AI·Python IPC·Windows 패키지·frame 성능·실제 청취는 아직 실행하지 않았다.
 제품/테스트/의존성/lock 변경, 엔진/도구 설치, 구매·대량 다운로드·게임 구현도 이번 범위 밖이다.
