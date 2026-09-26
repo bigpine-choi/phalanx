@@ -12,11 +12,19 @@
     if (text !== undefined) element.textContent = String(text);
     return element;
   };
+  const desktopMode = document.body.dataset.desktopMode || "";
+  const desktop = Boolean(desktopMode && window.parent !== window);
+  if (desktop) {
+    document.querySelector(".brand-caption").textContent = "편성실 · Windows";
+    document.querySelector(".offline-label").textContent = desktopMode === "calculated" ? "이번 작업의 계산 결과" : "저장된 결과 조회";
+    document.querySelector(".prototype-label").textContent = "Windows 편성실";
+    byId("settings-storage").textContent = "음량·모션 설정만 사용자별 앱 데이터 폴더에 저장합니다. 투자 데이터는 포함하지 않습니다.";
+  }
   const settingsKey = "phalanx.formation-room.preferences.v1";
   const preferences = { sfxVolume: 22, musicVolume: 16, reduceMotion: false };
   let storageAvailable = true;
   try {
-    const stored = JSON.parse(localStorage.getItem(settingsKey) || "null");
+    const stored = desktop ? null : JSON.parse(localStorage.getItem(settingsKey) || "null");
     if (stored && typeof stored === "object") {
       for (const key of ["sfxVolume", "musicVolume"]) {
         if (typeof stored[key] === "number" && Number.isFinite(stored[key])) {
@@ -32,6 +40,10 @@
     byId("settings-storage").classList.add("unavailable");
   };
   const savePreferences = () => {
+    if (desktop) {
+      window.parent.postMessage({ type: "phalanx-room-preferences", preferences: { ...preferences } }, "*");
+      return;
+    }
     try {
       // Only these three presentation preferences are persisted. Never source data.
       localStorage.setItem(settingsKey, JSON.stringify(preferences));
@@ -39,7 +51,7 @@
   };
   showStorageNotice();
   // Probe blocked writes too; reads can succeed while storage is read-only.
-  savePreferences();
+  if (!desktop) savePreferences();
   const audio = window.PhalanxAudio.createController({
     sfxVolume: preferences.sfxVolume / 100,
     musicVolume: preferences.musicVolume / 100,
@@ -55,6 +67,33 @@
       byId("audio-preview").disabled = state.starting || !state.supported;
     }
   });
+  let disposed = false;
+  const applyDesktopPreferences = value => {
+    if (!value || !Number.isInteger(value.sfxVolume) || !Number.isInteger(value.musicVolume) || typeof value.reduceMotion !== "boolean") return;
+    preferences.sfxVolume = Math.max(0, Math.min(100, value.sfxVolume));
+    preferences.musicVolume = Math.max(0, Math.min(100, value.musicVolume));
+    preferences.reduceMotion = value.reduceMotion;
+    audio.setVolumes(preferences.sfxVolume / 100, preferences.musicVolume / 100);
+    for (const [id, key] of [["sfx-volume", "sfxVolume"], ["music-volume", "musicVolume"]]) {
+      byId(id).value = String(preferences[key]);
+      put(`${id}-label`, `${preferences[key]}%`);
+    }
+    byId("reduce-motion").checked = preferences.reduceMotion;
+    document.documentElement.classList.toggle("reduced-motion", preferences.reduceMotion);
+  };
+  const onDesktopMessage = event => {
+    if (!desktop || event.source !== window.parent || !event.data || disposed) return;
+    if (event.data.type === "phalanx-desktop-settings") applyDesktopPreferences(event.data.preferences);
+    else if (event.data.type === "phalanx-desktop-silence") audio.silence();
+    else if (event.data.type === "phalanx-desktop-dispose") {
+      disposed = true;
+      document.body.inert = true;
+      audio.dispose();
+      window.removeEventListener("message", onDesktopMessage);
+      window.parent.postMessage({ type: "phalanx-room-disposed" }, "*");
+    }
+  };
+  if (desktop) window.addEventListener("message", onDesktopMessage);
   let scenarioIndex = 0;
   let selectedCode = data.selected_codes[0] || null;
   const tabs = [];
@@ -314,4 +353,5 @@
     document.documentElement.classList.toggle("reduced-motion", preferences.reduceMotion);
     savePreferences();
   });
+  if (desktop) window.parent.postMessage({ type: "phalanx-room-ready" }, "*");
 })();

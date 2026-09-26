@@ -1,0 +1,335 @@
+{
+  "candidates": [
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "7596320c8dc0a751a59506552068a8c87439c8e1e83b3ed3de2ec34f7814a6f2",
+      "eligible_observation_count": 505,
+      "last_close": "163701",
+      "metric_rank": 1,
+      "ordinal": 0,
+      "reasons": [
+        {
+          "code": "SELECTED_TOP_N",
+          "description": "명시한 정책의 상위 범위에 선정되었습니다."
+        }
+      ],
+      "score": "0.0684885906741162341392094407602736149548326458148",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 505,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "0.0684885906741162341392094407602736149548326458148",
+        "window_end": "2026-08-20",
+        "window_start": "2026-05-28"
+      },
+      "selection_order": 1,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "a549ba6ada0741bae75c88e497a502fbfcc7266b0dfe80f7296be5e00f77e2cc",
+      "source_status": "completed",
+      "status": "selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "합성 삼성전자",
+        "policy_version": "synthetic-policy",
+        "short_code": "005930",
+        "source_files": [],
+        "standard_code": "synthetic-standard-0"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 253,
+      "used_start": "2025-09-02"
+    },
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "e1fda63879c9f7e5b2a5379ead0fa94b3280a49c0ef6d0a0b220477b614e066c",
+      "eligible_observation_count": 505,
+      "last_close": "137537",
+      "metric_rank": 3,
+      "ordinal": 1,
+      "reasons": [
+        {
+          "code": "SELECTED_TOP_N",
+          "description": "명시한 정책의 상위 범위에 선정되었습니다."
+        }
+      ],
+      "score": "0.0513292871229609698674534864166577486967023895064",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 505,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "0.0513292871229609698674534864166577486967023895064",
+        "window_end": "2026-08-20",
+        "window_start": "2026-05-28"
+      },
+      "selection_order": 3,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "1b054f8dc4bb7c5b3f0dc73d7f120e570613b5d755fc0bbca32239d58aaa8bee",
+      "source_status": "completed",
+      "status": "selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "아주 긴 합성 기업 이름 한글 표시 검증 주식회사",
+        "policy_version": "synthetic-policy",
+        "short_code": "000001",
+        "source_files": [],
+        "standard_code": "synthetic-standard-1"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 253,
+      "used_start": "2025-09-02"
+    },
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "7b8a0b4db40a14d15f936d14d2694371013fa23e350d56ee8b01cab4fe2f54f8",
+      "eligible_observation_count": 505,
+      "last_close": "131907",
+      "metric_rank": 4,
+      "ordinal": 2,
+      "reasons": [
+        {
+          "code": "SELECTED_TOP_N",
+          "description": "명시한 정책의 상위 범위에 선정되었습니다."
+        }
+      ],
+      "score": "0.0117662399423193452632063387357811816863921210680",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 505,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "0.0117662399423193452632063387357811816863921210680",
+        "window_end": "2026-08-20",
+        "window_start": "2026-05-28"
+      },
+      "selection_order": 4,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "3aaaa40feca6b5c37e45652f1ae6673d650cd5fbcc38a770af310fa891722c4a",
+      "source_status": "completed",
+      "status": "selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "합성 에스케이하이닉스",
+        "policy_version": "synthetic-policy",
+        "short_code": "000660",
+        "source_files": [],
+        "standard_code": "synthetic-standard-2"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 253,
+      "used_start": "2025-09-02"
+    },
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "ce1ef8cce391d23434a5150804984215e88a426dead2913975124ba703d7f42a",
+      "eligible_observation_count": 505,
+      "last_close": "138407",
+      "metric_rank": 6,
+      "ordinal": 3,
+      "reasons": [
+        {
+          "code": "SELECTED_TOP_N",
+          "description": "명시한 정책의 상위 범위에 선정되었습니다."
+        }
+      ],
+      "score": "-0.00076527112978565188827041505129482431251940251096",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 505,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "-0.00076527112978565188827041505129482431251940251096",
+        "window_end": "2026-08-20",
+        "window_start": "2026-05-28"
+      },
+      "selection_order": 6,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "c00aff865187031c22a3d0c74060a409bf4660dffdd7a3a3731dce74f439b669",
+      "source_status": "completed",
+      "status": "selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "synthetic name 3",
+        "policy_version": "synthetic-policy",
+        "short_code": "035420",
+        "source_files": [],
+        "standard_code": "synthetic-standard-3"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 253,
+      "used_start": "2025-09-02"
+    },
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "93f73c77ed9a2b9b61cf80620f32da66218adf7d5e3600f4190ee3e1ea625477",
+      "eligible_observation_count": 505,
+      "last_close": "164960",
+      "metric_rank": 2,
+      "ordinal": 4,
+      "reasons": [
+        {
+          "code": "SELECTED_TOP_N",
+          "description": "명시한 정책의 상위 범위에 선정되었습니다."
+        }
+      ],
+      "score": "0.0579106009106650420060283460527159622907715000321",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 505,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "0.0579106009106650420060283460527159622907715000321",
+        "window_end": "2026-08-20",
+        "window_start": "2026-05-28"
+      },
+      "selection_order": 2,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "2f8b27ee5907076203e1a60650a87c1cdc6b02fd7cba13afaa106acae5b0a718",
+      "source_status": "completed",
+      "status": "selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "synthetic name 4",
+        "policy_version": "synthetic-policy",
+        "short_code": "051910",
+        "source_files": [],
+        "standard_code": "synthetic-standard-4"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 253,
+      "used_start": "2025-09-02"
+    },
+    {
+      "calendar_days_since_last_observation": 0,
+      "consumed_input_sha256": "35c83ba748ec2cce9d4cfd432c595a70bddc5f98b3c29dd2609e4ff21d4cc5e7",
+      "eligible_observation_count": 505,
+      "last_close": "152629",
+      "metric_rank": 5,
+      "ordinal": 5,
+      "reasons": [
+        {
+          "code": "SELECTED_TOP_N",
+          "description": "명시한 정책의 상위 범위에 선정되었습니다."
+        }
+      ],
+      "score": "0.0003670374181539328714779154896344700569563422100",
+      "selected_feature": {
+        "available": true,
+        "available_observations": 505,
+        "intervals": 60,
+        "name": "price_return",
+        "reason": null,
+        "reason_code": null,
+        "required_observations": 61,
+        "value": "0.0003670374181539328714779154896344700569563422100",
+        "window_end": "2026-08-20",
+        "window_start": "2026-05-28"
+      },
+      "selection_order": 5,
+      "source_error_code": null,
+      "source_error_message": null,
+      "source_price_sha256": "4ac13ed397056c0094b242c8e64381bda44941a862a03646b753925045609714",
+      "source_status": "completed",
+      "status": "selected",
+      "target": {
+        "market": "KOSPI",
+        "name": "synthetic name 5",
+        "policy_version": "synthetic-policy",
+        "short_code": "000002",
+        "source_files": [],
+        "standard_code": "synthetic-standard-5"
+      },
+      "used_end": "2026-08-20",
+      "used_observation_count": 253,
+      "used_start": "2025-09-02"
+    }
+  ],
+  "comparison_scope": "provided_features_candidates",
+  "complete": true,
+  "eligible_count": 6,
+  "evaluated_at": "2026-09-13T00:00:00Z",
+  "evaluation_complete": true,
+  "not_selected_count": 0,
+  "point_in_time_backtest_guaranteed": false,
+  "policy": {
+    "max_age_days": 7,
+    "metric": "return_60",
+    "policy_id": "single_price_feature_rank_v1",
+    "rank_method": "competition",
+    "tie_breaker": "short_code_ascii_ascending",
+    "top": 6
+  },
+  "price_basis": "adjusted_close_price_return_excluding_dividends",
+  "reference_price_date": "2026-08-20",
+  "requested_top": 6,
+  "schema_version": "1",
+  "selected_codes": [
+    "005930",
+    "051910",
+    "000001",
+    "000660",
+    "000002",
+    "035420"
+  ],
+  "selected_count": 6,
+  "selection_filled": true,
+  "shortfall": 0,
+  "sort_direction": "descending",
+  "source": {
+    "as_of": "2026-08-20",
+    "calculated_at": "2026-09-13T00:00:00Z",
+    "discovery_run_id": "synthetic-discovery-run",
+    "feature_policy": {
+      "annualization_formula": "sample_std(simple_returns) * sqrt(252)",
+      "annualization_periods": 252,
+      "consumed_input_contract": "dated_closes_as_of_v1",
+      "decimal_precision": 50,
+      "decimal_rounding": "ROUND_HALF_EVEN",
+      "drawdown_intervals": [
+        60,
+        252
+      ],
+      "interval_basis": "consecutive_observed_closes",
+      "return_intervals": [
+        20,
+        60,
+        120,
+        252
+      ],
+      "variance_ddof": 1,
+      "version": "candidate_price_features_v1",
+      "volatility_intervals": [
+        20,
+        60
+      ]
+    },
+    "feature_schema_version": "1",
+    "features_complete": true,
+    "history_job_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input_sha256": "d9f8e40c9de173cfda7f6a60449be1096aa5106e46e9513ad19af4a7ba1336ac",
+    "source_price_hashes_verified": false
+  },
+  "trading_day_completeness": "unverified",
+  "unavailable_count": 0
+}

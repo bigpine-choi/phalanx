@@ -832,3 +832,9 @@ CLI에는 환경 선택 옵션이 없으며 모의투자 모드도 제공하지 
 10. 실행 전후 미체결·체결 내역에 변화가 없음을 확인합니다. 이 절차에서는 주문·정정·취소 호출을 절대 수행하지 않습니다.
 
 상세 구현 계획은 [`docs/plans/kis-account-snapshot.md`](docs/plans/kis-account-snapshot.md)에 있습니다.
+
+### Windows 독립 편성실
+
+저장 목표비중 JSON 열기와 기존 Python 서비스의 새 목표비중 계산을 같은 Windows 창에서
+이어갈 수 있습니다. GUI는 선택 의존성 `desktop`이며 Linux CLI/headless 설치에는 필요 없습니다.
+[Windows 실행·DB 백업·검증 안내](docs/windows-desktop.md)를 참고하세요.

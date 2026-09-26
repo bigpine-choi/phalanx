@@ -276,8 +276,7 @@
         } catch (_) { audioFailure(); }
       }
     };
-    const onVisibility = () => {
-      if (!document.hidden) return;
+    const silence = () => {
       const hadAudio = enabled || starting;
       mute();
       stopVoices(musicVoices, true);
@@ -285,7 +284,9 @@
       if (context) context.suspend().catch(() => {});
       if (hadAudio) notice("화면이 숨겨져 음향을 정지했습니다. 소리 켜기 또는 음악 시작으로 직접 재개해 주세요.");
     };
+    const onVisibility = () => { if (document.hidden) silence(); };
     const dispose = () => {
+      if (disposed) return;
       disposed = true;
       mute();
       stopVoices(musicVoices, true);
@@ -305,7 +306,7 @@
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     changed();
-    return { enable, mute, effect, preview, startMusic, stopMusic, setVolumes, dispose, getState: state };
+    return { enable, mute, silence, effect, preview, startMusic, stopMusic, setVolumes, dispose, getState: state };
   };
 
   // Deterministic offline renderer for waveform inspection and reproducible WAV export.

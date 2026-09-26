@@ -18,8 +18,15 @@ dependencies = [
     "typer>=0.27.2",
 ]
 
+[project.optional-dependencies]
+desktop = [
+    "pywebview>=6.1,<7; sys_platform == 'win32'",
+    "pywin32>=311; sys_platform == 'win32'",
+]
+
 [project.scripts]
 phalanx = "phalanx.cli:main"
+phalanx-desktop = "phalanx.desktop.runtime:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

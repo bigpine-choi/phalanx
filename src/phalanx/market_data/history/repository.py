@@ -18,6 +18,17 @@ from pydantic import ValidationError
 from phalanx.domain.market_data import DailyBar
 from phalanx.domain.price_history import HistoryJob, HistoryView, SymbolHistory
 from phalanx.market_data.history.errors import HistoryError, HistoryStorageError
+from phalanx.market_data.history.reader import (
+    APPLICATION_ID as _APPLICATION_ID,
+)
+from phalanx.market_data.history.reader import (
+    SCHEMA as _SCHEMA,
+)
+from phalanx.market_data.history.reader import (
+    read_selected,
+    validate_database,
+    validate_selection,
+)
 from phalanx.snapshots import (
     SnapshotStorageError,
     _assert_no_symlink_components,
@@ -25,13 +36,6 @@ from phalanx.snapshots import (
     _open_secure_temporary_file,
     _same_file,
     _validate_private_directory,
-)
-
-_APPLICATION_ID = 0x50484831
-_SCHEMA = (
-    "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, job_json TEXT NOT NULL)",
-    "CREATE TABLE symbols (job_id TEXT NOT NULL REFERENCES jobs(job_id), "
-    "ordinal INTEGER NOT NULL, state_json TEXT NOT NULL, PRIMARY KEY(job_id, ordinal))",
 )
 
 
@@ -122,14 +126,9 @@ class SqliteHistoryRepository:
             )
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA trusted_schema = OFF")
-            if (
-                connection.execute("PRAGMA user_version").fetchone()[0] != 1
-                or connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID
-                or connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete"
-            ):
-                raise HistoryStorageError()
             connection.execute("PRAGMA synchronous = FULL")
             connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+            validate_database(connection, strict_schema=False)
             if not _same_file(before, self._check_path()):
                 raise HistoryStorageError()
             yield connection
@@ -213,53 +212,9 @@ class SqliteHistoryRepository:
         self, job_id: str, *, codes: tuple[str, ...] = (), all_targets: bool = False
     ) -> tuple[HistoryJob, tuple[SymbolHistory, ...]]:
         """Read selected states once, in requested order, from one SQLite snapshot."""
-        if bool(codes) == all_targets:
-            raise HistoryError(
-                "TARGET_SELECTION_REQUIRED", "--code 또는 --all-targets 중 하나가 필요합니다."
-            )
-        if len(codes) != len(set(codes)):
-            raise HistoryError("DUPLICATE_CODE", "중복 --code는 허용하지 않습니다.")
+        validate_selection(codes, all_targets)
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT job_json FROM jobs WHERE job_id=?", (job_id,)
-            ).fetchone()
-            if row is None:
-                raise HistoryError(
-                    "JOB_NOT_FOUND", "지정한 일봉 작업이 없습니다. create가 필요합니다."
-                )
-            job = HistoryJob.model_validate_json(row[0])
-            if job.job_id != job_id:
-                raise HistoryStorageError()
-            if all_targets:
-                ordinals = tuple(range(len(job.targets)))
-            else:
-                by_code = {target.short_code: index for index, target in enumerate(job.targets)}
-                if any(code not in by_code for code in codes):
-                    raise HistoryError(
-                        "SYMBOL_NOT_FOUND", "해당 종목은 이 작업의 고정 대상이 아닙니다."
-                    )
-                ordinals = tuple(by_code[code] for code in codes)
-            return job, tuple(self._read_symbol(connection, job, ordinal) for ordinal in ordinals)
-
-    @staticmethod
-    def _read_symbol(
-        connection: sqlite3.Connection, job: HistoryJob, ordinal: int
-    ) -> SymbolHistory:
-        row = connection.execute(
-            "SELECT state_json FROM symbols WHERE job_id=? AND ordinal=?", (job.job_id, ordinal)
-        ).fetchone()
-        if row is None:
-            raise HistoryStorageError()
-        symbol = SymbolHistory.model_validate_json(row[0])
-        if symbol.ordinal != ordinal:
-            raise HistoryStorageError()
-        if symbol.result is not None and any(
-            bar.stock_code != job.targets[ordinal].short_code
-            or not job.start <= bar.trade_date <= job.end
-            for bar in symbol.result.bars
-        ):
-            raise HistoryStorageError()
-        return symbol
+            return read_selected(connection, job_id, codes=codes, all_targets=all_targets)
 
     @contextmanager
     def execution_lock(self, job_id: str) -> Iterator[None]:

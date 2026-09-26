@@ -19,6 +19,12 @@ class AllocationTargetsService:
             prepared = self.input_service.prepare(selection_path)
             return calculate_allocation_targets(prepared)
 
+    def calculate_bytes(self, payload: bytes) -> AllocationTargets:
+        """Use one preparation and the same Decimal context as the path API."""
+        with localcontext(financial_decimal_context()):
+            prepared = self.input_service.prepare_bytes(payload)
+            return calculate_allocation_targets(prepared)
+
     @staticmethod
     def export(result: AllocationTargets, output: Path) -> Path:
         return store_private_json_bytes(output, result.to_json_bytes())
