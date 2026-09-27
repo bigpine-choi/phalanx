@@ -1,21 +1,27 @@
 extends Node3D
-## Scene wiring and the camp HUD; geometry, picking, and modal UI live separately.
+## Scene wiring and HUD. Movement, collision, selection and modal UI stay separate.
 
 @onready var environment = $Environment
 @onready var table_interaction = $TableInteraction
 @onready var dashboard_overlay = $DashboardOverlay
+@onready var player = $Player
 
 var camp_hud: CanvasLayer
 var hover_hint: Label
+var crosshair: Panel
+var capture_prompt: PanelContainer
 
 func _ready() -> void:
 	get_window().min_size = Vector2i(960, 680)
-	table_interaction.camera = environment.get_node("CampCamera")
+	$CampCollision.build(environment)
+	table_interaction.camera = player.camera
 	table_interaction.hover_changed.connect(_table_hover_changed)
 	table_interaction.activated.connect(dashboard_overlay.open_dashboard)
 	dashboard_overlay.opened.connect(_dashboard_opened)
 	dashboard_overlay.closed.connect(_dashboard_closed)
+	player.exploration_changed.connect(_exploration_changed)
 	_build_hud()
+	_exploration_changed(player.exploring)
 
 func _build_hud() -> void:
 	camp_hud = CanvasLayer.new()
@@ -57,10 +63,38 @@ func _build_hud() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", 24)
 	bottom.add_child(row)
-	hover_hint = _label("중앙 테이블 위에 마우스를 올려보세요", 17, Color("e5d3ae"))
+	hover_hint = _label("클릭하여 탐색 시작", 17, Color("e5d3ae"))
 	hover_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(hover_hint)
 	row.add_child(_label("가상 데이터 사용  ·  실제 계좌 미연결", 12, Color("c8b389")))
+	crosshair = Panel.new()
+	crosshair.name = "AimReticle"
+	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(crosshair)
+	crosshair.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	crosshair.offset_left = -3
+	crosshair.offset_top = -3
+	crosshair.offset_right = 3
+	crosshair.offset_bottom = 3
+	var reticle_style := StyleBoxFlat.new()
+	reticle_style.bg_color = Color("f4e4c5")
+	reticle_style.border_color = Color("342b23")
+	reticle_style.set_border_width_all(1)
+	reticle_style.set_corner_radius_all(3)
+	crosshair.add_theme_stylebox_override("panel", reticle_style)
+	capture_prompt = PanelContainer.new()
+	capture_prompt.name = "CapturePrompt"
+	capture_prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	capture_prompt.add_theme_stylebox_override("panel", _hud_style())
+	hud.add_child(capture_prompt)
+	capture_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	capture_prompt.offset_left = -240
+	capture_prompt.offset_right = 240
+	capture_prompt.offset_top = -44
+	capture_prompt.offset_bottom = 44
+	var prompt := _label("클릭하여 탐색 시작\nWASD 이동 · 마우스 시선 · Esc 마우스 해제", 17, Color("f4e4c5"))
+	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	capture_prompt.add_child(prompt)
 
 func _label(text: String, font_size: int, color: Color) -> Label:
 	var label := Label.new()
@@ -84,13 +118,24 @@ func _hud_style() -> StyleBoxFlat:
 func _table_hover_changed(value: bool) -> void:
 	environment.set_table_highlight(value)
 	if is_instance_valid(hover_hint):
-		hover_hint.text = "작전 테이블 열기  ·  마우스 왼쪽 클릭" if value else "중앙 테이블 위에 마우스를 올려보세요"
+		hover_hint.text = "E — 작전 테이블 열기" if value else ("WASD 이동 · 마우스 시선 · Esc 마우스 해제" if player.exploring else "클릭하여 탐색 시작")
 		hover_hint.modulate = Color("ffd895") if value else Color.WHITE
+		crosshair.modulate = Color("ffd895") if value else Color.WHITE
+
+func _exploration_changed(value: bool) -> void:
+	var active: bool = value and not dashboard_overlay.is_open()
+	table_interaction.set_interaction_enabled(active)
+	if is_instance_valid(crosshair):
+		crosshair.visible = active
+		capture_prompt.visible = not active and not dashboard_overlay.is_open()
+		_table_hover_changed(false)
 
 func _dashboard_opened() -> void:
 	table_interaction.set_interaction_enabled(false)
+	player.set_modal_blocked(true)
 	camp_hud.hide()
 
 func _dashboard_closed() -> void:
-	table_interaction.set_interaction_enabled(true)
 	camp_hud.show()
+	player.set_modal_blocked(false)
+	_exploration_changed(player.exploring)

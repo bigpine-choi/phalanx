@@ -1,12 +1,14 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/command_camp.gd" id="1_camp"]
 [ext_resource type="Script" path="res://scripts/camp_environment.gd" id="2_environment"]
 [ext_resource type="Script" path="res://scripts/table_interaction.gd" id="3_table"]
 [ext_resource type="Script" path="res://scripts/dashboard_overlay.gd" id="4_dashboard"]
+[ext_resource type="Script" path="res://scripts/camp_player.gd" id="5_player"]
+[ext_resource type="Script" path="res://scripts/camp_collision.gd" id="6_collision"]
 
 [sub_resource type="BoxShape3D" id="BoxShape_table"]
-size = Vector3(3.95, 0.65, 2.65)
+size = Vector3(3.95, 0.36, 2.65)
 
 [node name="CommandCamp" type="Node3D"]
 script = ExtResource("1_camp")
@@ -14,8 +16,15 @@ script = ExtResource("1_camp")
 [node name="Environment" type="Node3D" parent="."]
 script = ExtResource("2_environment")
 
+[node name="Player" type="CharacterBody3D" parent="."]
+position = Vector3(0, 0.04, -2.65)
+script = ExtResource("5_player")
+
+[node name="CampCollision" type="Node3D" parent="."]
+script = ExtResource("6_collision")
+
 [node name="TableInteraction" type="Area3D" parent="."]
-position = Vector3(0, 1.2, 0)
+position = Vector3(0, 1.01, 0)
 collision_layer = 2
 collision_mask = 0
 input_ray_pickable = false
@@ -27,3 +36,11 @@ shape = SubResource("BoxShape_table")
 [node name="DashboardOverlay" type="CanvasLayer" parent="."]
 layer = 10
 script = ExtResource("4_dashboard")
+
+[node name="ReviewCamera" type="Camera3D" parent="."]
+position = Vector3(0, 1.69, -3.1)
+rotation_degrees = Vector3(-11, 180, 0)
+current = false
+fov = 70.0
+near = 0.05
+far = 210.0

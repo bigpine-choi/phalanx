@@ -10,6 +10,7 @@ var dashboard: Control
 var blocker: Control
 var close_button: Button
 var dashboard_host: Control
+var _last_escape_event: InputEventKey
 
 func _ready() -> void:
 	layer = 10
@@ -74,8 +75,10 @@ func open_dashboard() -> void:
 		dashboard.set("embedded_in_camp", true)
 		dashboard_host.add_child(dashboard)
 		dashboard.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		# Native popup keys bypass the parent viewport. Its X/OK keep their usual behavior.
-		dashboard.dialog.window_input.connect(_input)
+		# Handle Esc here before hiding either UI layer. AcceptDialog's built-in
+		# handler would otherwise hide the popup before window_input reaches us.
+		dashboard.dialog.dialog_close_on_escape = false
+		dashboard.dialog.window_input.connect(_on_plan_window_input)
 	blocker.show()
 	close_button.grab_focus()
 	opened.emit()
@@ -92,6 +95,27 @@ func is_open() -> bool:
 	return is_instance_valid(blocker) and blocker.visible
 
 func _input(event: InputEvent) -> void:
-	if is_open() and event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
-		get_viewport().set_input_as_handled()
+	if not is_open() or not _consume_escape(event):
+		return
+	if dashboard.dialog.visible:
+		dashboard.dialog.hide()
+	else:
 		close_dashboard()
+
+func _on_plan_window_input(event: InputEvent) -> void:
+	# Native popup input does not go through the root viewport. This route may
+	# dismiss only the popup, never the dashboard underneath it.
+	if is_open() and _consume_escape(event):
+		dashboard.dialog.hide()
+
+func _consume_escape(event: InputEvent) -> bool:
+	if not event is InputEventKey or event.keycode != KEY_ESCAPE:
+		return false
+	get_viewport().set_input_as_handled()
+	dashboard.dialog.set_input_as_handled()
+	if not event.pressed or event.echo or event == _last_escape_event:
+		return false
+	# Keep the event itself alive so its instance ID cannot be reused. If the
+	# same dispatch reaches both windows, it still dismisses only one layer.
+	_last_escape_event = event
+	return true

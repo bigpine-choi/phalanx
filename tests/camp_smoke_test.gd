@@ -35,13 +35,16 @@ func _mouse_click(position: Vector2) -> void:
 		event.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed else 0
 		Input.parse_input_event(event)
 
-func _escape() -> void:
+func _key(keycode: Key) -> void:
 	for pressed: bool in [true, false]:
 		var event := InputEventKey.new()
-		event.keycode = KEY_ESCAPE
-		event.physical_keycode = KEY_ESCAPE
+		event.keycode = keycode
+		event.physical_keycode = keycode
 		event.pressed = pressed
 		Input.parse_input_event(event)
+
+func _escape() -> void:
+	_key(KEY_ESCAPE)
 
 func _inside(control: Control, bounds: Rect2) -> bool:
 	var rectangle: Rect2 = control.get_global_rect()
@@ -74,34 +77,43 @@ func _run() -> void:
 	var environment: Node = camp.get("environment") as Node
 	var interactor: Variant = camp.get("table_interaction")
 	var overlay: Variant = camp.get("dashboard_overlay")
-	if environment == null or interactor == null or overlay == null:
-		check(false, "Camp environment, interaction and overlay must be separate nodes")
+	var player: Variant = camp.get("player")
+	if environment == null or interactor == null or overlay == null or player == null:
+		check(false, "Camp environment, player, interaction and overlay must be separate nodes")
 		_finish()
 		return
-	var camera: Camera3D = environment.get_node_or_null("CampCamera") as Camera3D
-	check(camera != null and camera.current, "Camp must have a current fixed camera")
+	var camera: Camera3D = player.get("camera") as Camera3D
+	check(camera != null and camera.current, "Camp must have a current first-person camera")
 	check(interactor is Area3D and interactor.get_child_count() > 0, "Operation table must have an interaction area")
 	check(not overlay.is_open() and overlay.dashboard == null, "Dashboard must be lazy and initially closed")
-	check(interactor.interaction_enabled, "Table input must start enabled")
+	check(not interactor.interaction_enabled and not player.exploring, "Exploration and table input must wait for the initial click")
 	if camera == null:
 		_finish()
 		return
 	overlay.opened.connect(func() -> void: opened_count += 1)
 	overlay.closed.connect(func() -> void: closed_count += 1)
 	interactor.activated.connect(func() -> void: activated_count += 1)
-	var table_screen: Vector2 = camera.unproject_position(Vector3(0, 1.35, 0))
-	_mouse_move(table_screen)
+	# A headless window cannot receive an OS focus event; simulate it explicitly.
+	player.notification(Node.NOTIFICATION_WM_WINDOW_FOCUS_IN)
+	player.global_position = Vector3(0, 0.04, -2.2)
+	camera.look_at(Vector3(0, 1.04, 0))
+	var table_screen: Vector2 = Vector2(root.size) * 0.5
+	_mouse_click(table_screen)
 	await _settle()
-	check(interactor.hovered, "Mouse motion over the table must enable its hover state")
-	_mouse_move(Vector2(2, 2))
+	check(player.exploring and not overlay.is_open(), "Initial click must capture exploration without opening the table")
+	check(interactor.hovered, "Looking at the nearby table must enable its hover state")
+	camera.look_at(camera.global_position + Vector3(0, 0, -1))
 	await _settle()
-	check(not interactor.hovered, "Moving off the table must clear its hover state")
-	_mouse_move(table_screen)
+	check(not interactor.hovered, "Looking away must clear table hover")
+	camera.look_at(Vector3(0, 1.04, 0))
 	await _settle()
 	_mouse_click(table_screen)
 	await _settle()
-	check(overlay.is_open() and overlay.dashboard != null, "A screen-space table click must open the dashboard")
-	check(activated_count == 1 and opened_count == 1, "One table click must activate and open exactly once")
+	check(not overlay.is_open(), "Legacy left click must not activate the table while exploring")
+	_key(KEY_E)
+	await _settle()
+	check(overlay.is_open() and overlay.dashboard != null, "E at the nearby centered table must open the dashboard")
+	check(activated_count == 1 and opened_count == 1, "One E press must activate and open exactly once")
 	if overlay.dashboard == null:
 		_finish()
 		return
@@ -110,6 +122,7 @@ func _run() -> void:
 	var close_connections: int = overlay.close_button.get_signal_connection_list("pressed").size()
 	var table_connections: int = interactor.get_signal_connection_list("activated").size()
 	check(not interactor.interaction_enabled and not interactor.hovered, "Opening the dashboard must disable and clear table hover")
+	check(not player.exploring and player.modal_blocked, "Opening the dashboard must stop player movement and look")
 	check(overlay.blocker.visible and overlay.blocker.mouse_filter == Control.MOUSE_FILTER_STOP, "Visible dashboard must have a full-screen input blocker")
 	check(dashboard.get("embedded_in_camp") == true, "Embedded dashboard must leave camp window settings alone")
 	var opens_before: int = opened_count
@@ -122,12 +135,10 @@ func _run() -> void:
 	_mouse_click(close_screen)
 	await _settle()
 	check(not overlay.is_open() and closed_count == 1, "Close button must return to camp exactly once")
-	check(interactor.interaction_enabled and not overlay.blocker.visible, "Closing must release the input blocker and restore table input")
-	check(not interactor.hovered, "Closing with the pointer over the return button must not restore stale table hover")
-	_mouse_move(table_screen)
-	_mouse_click(table_screen)
+	check(interactor.interaction_enabled and player.exploring and not overlay.blocker.visible, "Closing must release the blocker and resume exploration")
+	_key(KEY_E)
 	await _settle()
-	check(overlay.is_open(), "Table must remain clickable after closing the dashboard")
+	check(overlay.is_open(), "Table must remain usable with E after closing the dashboard")
 	_escape()
 	await _settle()
 	check(not overlay.is_open() and closed_count == 2, "Escape must close the dashboard")
@@ -148,7 +159,25 @@ func _run() -> void:
 	native_escape.pressed = true
 	preview.window_input.emit(native_escape)
 	await _settle()
-	check(not overlay.is_open() and not preview.visible and closed_count == 3, "Escape routed by the native preview must close the preview and dashboard")
+	check(overlay.is_open() and not preview.visible and closed_count == 2, "First native popup Escape must close only the preview")
+	# A duplicate delivery of the same press to the parent must not close another layer.
+	Input.parse_input_event(native_escape)
+	await _settle()
+	check(overlay.is_open(), "One Escape press must not close both popup and dashboard")
+	native_escape.pressed = false
+	Input.parse_input_event(native_escape)
+	_escape()
+	await _settle()
+	check(not overlay.is_open() and closed_count == 3 and player.exploring, "Next Escape must close the dashboard and resume exploration")
+	overlay.open_dashboard()
+	dashboard.call("_show_plan")
+	await _settle()
+	_escape()
+	await _settle()
+	check(overlay.is_open() and not preview.visible, "Main viewport Escape must also close only the popup")
+	_escape()
+	await _settle()
+	check(not overlay.is_open(), "Second main viewport Escape must close the dashboard")
 
 	# Reopening reuses the dashboard and preserves an in-session portfolio edit.
 	dashboard.call("_target_changed", 20.0)

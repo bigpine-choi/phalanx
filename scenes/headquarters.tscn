@@ -1,8 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://ck7vhf6i4jvhr"]
 
-[ext_resource type="Script" path="res://scripts/headquarters.gd" id="1"]
+[ext_resource type="Script" uid="uid://b1k5fdwa87pvo" path="res://scripts/headquarters.gd" id="1"]
 
-[node name="Headquarters" type="Control"]
+[node name="Headquarters" type="Control" unique_id=867186271]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
