@@ -5,24 +5,30 @@ extends Node3D
 const SAND := Color("bca477")
 const RED := Color("681e25")
 const BRONZE := Color("b28b4c")
+const Materials := preload("res://scripts/camp_materials.gd")
+const Backdrop := preload("res://scripts/camp_backdrop.gd")
 
 var _highlight: Node3D
 var _lamps: Array[OmniLight3D] = []
 var _lamp_energy: Array[float] = []
 var _elapsed: float = 0.0
-var _wood: StandardMaterial3D
-var _wood_dark: StandardMaterial3D
-var _bronze: StandardMaterial3D
-var _cloth: StandardMaterial3D
-var _red: StandardMaterial3D
+var _wood: Material
+var _wood_vertical: Material
+var _wood_dark: Material
+var _bronze: Material
+var _cloth: Material
+var _red: Material
 
 
 func _ready() -> void:
-	_wood = _material(Color("493322"))
-	_wood_dark = _material(Color("251c18"))
-	_bronze = _material(BRONZE, 0.65, 0.4)
-	_cloth = _material(Color("b7a17a"))
-	_red = _material(RED)
+	get_viewport().msaa_3d = Viewport.MSAA_4X
+	get_viewport().use_taa = true
+	_wood = Materials.wood(Color("60452f"))
+	_wood_vertical = Materials.wood(Color("59432f"), true)
+	_wood_dark = Materials.wood(Color("362b23"))
+	_bronze = Materials.bronze(Color("957345"))
+	_cloth = Materials.cloth(Color("9e8c6d"))
+	_red = Materials.cloth(Color("511d28"))
 	_build_ground()
 	_build_tent()
 	_build_table()
@@ -32,6 +38,7 @@ func _ready() -> void:
 	_build_lighting()
 	_build_camera()
 	_build_highlight()
+	add_child(Backdrop.new())
 
 
 func _process(delta: float) -> void:
@@ -63,7 +70,7 @@ func _mesh(node_name: String, mesh: Mesh, at: Vector3, material: Material, paren
 	instance.mesh = mesh
 	instance.position = at
 	instance.material_override = material
-	parent.add_child(instance)
+	parent.add_child(instance, true)
 	return instance
 
 
@@ -103,8 +110,8 @@ func _beam(node_name: String, start: Vector3, finish: Vector3, radius: float, ma
 
 
 func _build_ground() -> void:
-	_box("DesertGround", Vector3(0, -0.17, 0), Vector3(80, 0.3, 80), _material(SAND))
-	var pad := _cylinder("CompactedTentGround", Vector3(0, -0.025, -0.6), 7.0, 0.055, _material(Color("a48b64")))
+	_box("DesertGround", Vector3(0, -0.17, 0), Vector3(220, 0.3, 220), Materials.ground(Color("9b886d")))
+	var pad := _cylinder("CompactedTentGround", Vector3(0, -0.025, -0.6), 7.0, 0.055, Materials.ground(Color("87765d")))
 	pad.scale.z = 0.83
 	_box("CommandRug", Vector3(0, 0.022, 0.1), Vector3(5.15, 0.025, 4.05), _red)
 	var rug_trim := _material(Color("b08a4e"))
@@ -132,7 +139,7 @@ func _build_tent() -> void:
 	# The entire front is open. The high pitched canopy stays above the view of the map.
 	for x: float in [-4.3, 4.3]:
 		for z: float in [-4.1, 2.35]:
-			_cylinder("TentPost", Vector3(x, 2.0, z), 0.095, 4.0, _wood)
+			_cylinder("TentPost", Vector3(x, 2.0, z), 0.095, 4.0, _wood_vertical)
 			_cylinder("PostFoot", Vector3(x, 0.16, z), 0.14, 0.30, _bronze)
 			_cylinder("PostCap", Vector3(x, 4.05, z), 0.13, 0.14, _bronze)
 			_beam("GuyRope", Vector3(x, 3.75, z), Vector3(x * 1.38, 0.12, z + 0.5), 0.022, rope)
@@ -142,37 +149,87 @@ func _build_tent() -> void:
 	for z: float in [-4.13, 2.38]:
 		_beam("RoofRafter", Vector3(-4.35, 3.98, z), Vector3(0, 5.72, z), 0.075, _wood)
 		_beam("RoofRafter", Vector3(4.35, 3.98, z), Vector3(0, 5.72, z), 0.075, _wood)
-	var roof_angle: float = atan2(1.74, 4.35)
-	var roof_width: float = Vector2(4.35, 1.74).length()
 	for side: float in [-1.0, 1.0]:
-		var roof := _box("CanvasRoof", Vector3(side * 2.175, 4.90, -0.87), Vector3(roof_width + 0.13, 0.07, 6.75), _cloth)
-		roof.rotation.z = -side * roof_angle
-		var edge := _box("CrimsonCanopyEdge", Vector3(side * 2.175, 4.89, 2.48), Vector3(roof_width + 0.15, 0.19, 0.07), _red)
-		edge.rotation.z = -side * roof_angle
+		_canopy(side)
 		for z: float in [-3.7, -2.35, -1.0, 0.35, 1.7]:
-			_beam("CanvasRoofSeam", Vector3(side * 4.32, 4.045, z), Vector3(0, 5.775, z), 0.013, rope)
-	_box("RearCanvas", Vector3(0, 1.92, -4.17), Vector3(8.55, 3.8, 0.065), _cloth)
-	_box("RearCrimsonBand", Vector3(0, 0.42, -4.12), Vector3(8.55, 0.72, 0.035), _red)
+			for segment in 12:
+				var a := _roof_point(side, float(segment) / 12.0, z)
+				var b := _roof_point(side, float(segment + 1) / 12.0, z)
+				_beam("CanvasRoofSeam", a + Vector3.UP * 0.015, b + Vector3.UP * 0.015, 0.012, rope)
+	_draped_panel("RearCanvas", Vector3(0, 1.92, -4.17), Vector2(8.55, 3.8), _cloth, 0.0, 0.10)
+	_draped_panel("RearCrimsonBand", Vector3(0, 0.42, -4.05), Vector2(8.55, 0.72), _red, 0.0, 0.06)
 	for x: float in [-3.2, -2.1, -1.0, 0.0, 1.0, 2.1, 3.2]:
 		_box("CanvasWallSeam", Vector3(x, 2.05, -4.115), Vector3(0.022, 3.45, 0.012), rope)
 	# Short side panels leave the entrance and its right-hand view unobstructed.
 	for side: float in [-1.0, 1.0]:
-		_box("SideCanvas", Vector3(side * 4.23, 1.78, -2.8), Vector3(0.065, 3.5, 2.7), _cloth)
-		_box("SideCrimsonBand", Vector3(side * 4.19, 0.42, -2.8), Vector3(0.045, 0.72, 2.7), _red)
-		var curtain := _box("GatheredEntranceCanvas", Vector3(side * 4.02, 2.1, 2.32), Vector3(0.5, 3.6, 0.19), _cloth)
-		curtain.rotation.z = -side * 0.045
-		_box("CurtainTie", Vector3(side * 4.02, 1.6, 2.42), Vector3(0.52, 0.12, 0.08), _bronze)
+		_draped_panel("SideCanvas", Vector3(side * 4.23, 1.78, -1.8), Vector2(4.7, 3.5), _cloth, PI * 0.5, 0.12)
+		_draped_panel("SideCrimsonBand", Vector3(side * 4.10, 0.65, -1.8), Vector2(4.7, 1.2), _red, PI * 0.5, 0.07)
+		_draped_panel("GatheredEntranceCanvas", Vector3(side * 4.15, 2.16, 2.32), Vector2(0.55, 3.5), _red, 0.0, 0.055)
+		_box("CurtainTie", Vector3(side * 4.15, 1.6, 2.45), Vector3(0.47, 0.07, 0.045), _bronze)
+	# A high, curved entrance valance frames the camp without crossing the map.
+	for segment in 24:
+		var x: float = lerpf(-4.3, 4.3, float(segment) / 24.0)
+		var next_x: float = lerpf(-4.3, 4.3, float(segment + 1) / 24.0)
+		var y: float = 4.16 - 0.25 * sin(float(segment) / 24.0 * PI)
+		var next_y: float = 4.16 - 0.25 * sin(float(segment + 1) / 24.0 * PI)
+		_beam("EntranceStitchedHem", Vector3(x, y, 2.4), Vector3(next_x, next_y, 2.4), 0.025, _red)
+
+
+func _draped_panel(node_name: String, at: Vector3, size: Vector2, material: Material, yaw: float, depth: float) -> void:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in 17:
+		var v: float = float(row) / 16.0
+		for column in 33:
+			var u: float = float(column) / 32.0
+			var fold_count: float = maxf(2.0, size.x * 1.4)
+			var fold: float = sin(u * TAU * fold_count + v * 0.5) * depth * (0.45 + sin(v * PI) * 0.55)
+			var sag: float = sin(u * PI) * 0.08 * v
+			surface.set_uv(Vector2(u, 1.0 - v))
+			surface.add_vertex(Vector3((u - 0.5) * size.x, (v - 0.5) * size.y - sag, fold))
+			if row > 0 and column > 0:
+				var i: int = row * 33 + column
+				for index: int in [i - 34, i - 1, i - 33, i - 33, i - 1, i]:
+					surface.add_index(index)
+	surface.generate_normals()
+	var panel := _mesh(node_name, surface.commit(), at, material)
+	panel.rotation.y = yaw
+
+
+func _roof_point(side: float, u: float, z: float) -> Vector3:
+	var sag: float = sin(u * PI) * (0.16 + 0.06 * cos(z * 1.3))
+	return Vector3(side * u * 4.42, 5.74 - u * 1.75 - sag, z)
+
+
+func _canopy(side: float) -> void:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for row in 25:
+		for column in 17:
+			var u: float = float(column) / 16.0
+			var v: float = float(row) / 24.0
+			surface.set_uv(Vector2(u, v))
+			surface.add_vertex(_roof_point(side, u, lerpf(-4.25, 2.52, v)))
+			if row > 0 and column > 0:
+				var i: int = row * 17 + column
+				var indices: Array = [i - 18, i - 17, i - 1, i - 17, i, i - 1] if side > 0 else [i - 18, i - 1, i - 17, i - 17, i - 1, i]
+				for index: int in indices:
+					surface.add_index(index)
+	surface.generate_normals()
+	_mesh("SaggingCanvasRoof", surface.commit(), Vector3.ZERO, _cloth)
 
 
 func _build_table() -> void:
 	for x: float in [-1.46, 1.46]:
 		for z: float in [-0.86, 0.86]:
-			_box("TableLeg", Vector3(x, 0.60, z), Vector3(0.23, 1.17, 0.23), _wood)
+			_box("TableLeg", Vector3(x, 0.60, z), Vector3(0.23, 1.17, 0.23), _wood_vertical)
 			_box("TableBronzeFoot", Vector3(x, 0.14, z), Vector3(0.26, 0.25, 0.26), _bronze)
 		_box("TableTrestle", Vector3(x, 0.38, 0), Vector3(0.20, 0.16, 2.12), _wood_dark)
 	_box("TableStretcher", Vector3(0, 0.46, 0), Vector3(3.13, 0.16, 0.18), _wood_dark)
 	_box("TableApron", Vector3(0, 1.11, 0), Vector3(3.50, 0.27, 2.2), _wood_dark)
-	_box("TableTop", Vector3(0, 1.25, 0), Vector3(3.8, 0.20, 2.5), _wood)
+	for plank in 7:
+		var z: float = -1.25 + (float(plank) + 0.5) * 2.5 / 7.0
+		_box("TableTopPlank", Vector3(0, 1.25, z), Vector3(3.8, 0.20, 2.5 / 7.0 - 0.009), _wood)
 	for x: float in [-1.88, 1.88]:
 		_box("TableBronzeRim", Vector3(x, 1.355, 0), Vector3(0.045, 0.035, 2.51), _bronze)
 	for z: float in [-1.23, 1.23]:
@@ -180,9 +237,9 @@ func _build_table() -> void:
 	for x: float in [-1.7, 1.7]:
 		for z: float in [-1.07, 1.07]:
 			_cylinder("TableRivet", Vector3(x, 1.365, z), 0.028, 0.016, _bronze)
-	_box("RearBenchSeat", Vector3(0, 0.59, -2.67), Vector3(2.65, 0.16, 0.48), _wood)
-	for x: float in [-1.04, 1.04]:
-		_box("BenchLeg", Vector3(x, 0.27, -2.67), Vector3(0.17, 0.56, 0.39), _wood_dark)
+	_box("SideBenchSeat", Vector3(-3.35, 0.59, -1.25), Vector3(0.48, 0.16, 2.0), _wood)
+	for z: float in [-2.0, -0.5]:
+		_box("BenchLeg", Vector3(-3.35, 0.27, z), Vector3(0.39, 0.56, 0.17), _wood_dark)
 
 
 func _flat_polygon(node_name: String, points: PackedVector2Array, height: float, material: Material) -> void:
@@ -211,9 +268,9 @@ func _map_line(node_name: String, start: Vector2, finish: Vector2, width: float,
 
 
 func _build_map() -> void:
-	var parchment := _material(Color("d4bc84"))
-	var sea := _material(Color("5c817c"))
-	var land := _material(Color("b29d66"))
+	var parchment := Materials.parchment(Color("c2ad80"))
+	var sea := Materials.parchment(Color("667a78"))
+	var land := Materials.parchment(Color("b0a076"))
 	var ink := _material(Color("6d6545"))
 	_box("ParchmentMap", Vector3(0, 1.369, 0), Vector3(3.14, 0.023, 1.93), parchment)
 	_box("MapSea", Vector3(-0.04, 1.383, -0.02), Vector3(2.88, 0.003, 1.68), sea)
@@ -232,7 +289,7 @@ func _build_map() -> void:
 	for x: float in [-0.06, 0.19, 0.31, -0.16]:
 		var island := _cylinder("MapIsland", Vector3(x, 1.391, 0.15 + x * 1.2), 0.065, 0.006, land)
 		island.scale.z = 0.48
-	var grid := _material(Color("8f9a7b"))
+	var grid := _material(Color("837d63"))
 	for index in range(1, 7):
 		var x: float = -1.48 + float(index) * 0.41
 		_map_line("MapMeridian", Vector2(x, -0.85), Vector2(x, 0.82), 0.004, grid, 1.397)
@@ -335,7 +392,7 @@ void fragment() {
 }
 """
 	for side: float in [-1.0, 1.0]:
-		var x: float = side * 2.03
+		var x: float = side * 3.65
 		_cylinder("StandardBase", Vector3(x, 0.075, -3.71), 0.28, 0.14, _bronze)
 		_cylinder("StandardPole", Vector3(x, 2.19, -3.71), 0.043, 4.26, _wood)
 		_sphere("StandardFinial", Vector3(x, 4.38, -3.71), 0.095, _bronze)
@@ -355,37 +412,49 @@ func _build_lighting() -> void:
 	var environment_node := WorldEnvironment.new()
 	environment_node.name = "CampAtmosphere"
 	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color("817565")
+	environment.background_mode = Environment.BG_SKY
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color("344657")
+	sky_material.sky_horizon_color = Color("c4a88a")
+	sky_material.ground_bottom_color = Color("45414a")
+	sky_material.ground_horizon_color = Color("b5a085")
+	sky_material.sky_curve = 0.22
+	var sky := Sky.new()
+	sky.sky_material = sky_material
+	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color("bcc3c9")
-	environment.ambient_light_energy = 0.47
+	environment.ambient_light_color = Color("9daac0")
+	environment.ambient_light_energy = 0.32
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.ssao_enabled = true
 	environment.ssao_radius = 1.3
-	environment.ssao_intensity = 1.5
+	environment.ssao_intensity = 1.25
+	environment.glow_enabled = false
+	environment.fog_enabled = false
 	environment_node.environment = environment
 	add_child(environment_node)
 	var sun := DirectionalLight3D.new()
 	sun.name = "LateAfternoonSun"
-	sun.rotation_degrees = Vector3(-47, -32, 0)
-	sun.light_color = Color("ffe0a7")
-	sun.light_energy = 1.05
+	# Low light travels in through +Z, across the entrance and toward the back wall.
+	sun.rotation_degrees = Vector3(-16, 24, 0)
+	sun.light_color = Color("f6deb8")
+	sun.light_energy = 1.15
+	sun.light_angular_distance = 1.2
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 36.0
+	sun.directional_shadow_max_distance = 65.0
 	add_child(sun)
 	var table_light := OmniLight3D.new()
 	table_light.name = "MapWarmFill"
-	table_light.position = Vector3(0.1, 3.6, 1.1)
-	table_light.light_color = Color("ffdfa6")
-	table_light.light_energy = 2.1
-	table_light.omni_range = 6.6
+	table_light.position = Vector3(0.1, 3.3, -0.6)
+	table_light.light_color = Color("ecd5b1")
+	table_light.light_energy = 1.0
+	table_light.omni_range = 4.8
 	table_light.omni_attenuation = 1.0
 	add_child(table_light)
-	var ember := _material(Color("ed8633"))
+	var ember := _material(Color("773925"))
 	ember.emission_enabled = true
-	ember.emission = Color("ffab46")
-	ember.emission_energy_multiplier = 2.5
+	ember.emission = Color("dc682b")
+	ember.emission_energy_multiplier = 0.85
 	for side: float in [-1.0, 1.0]:
 		var at := Vector3(side * 3.05, 0, 0.60)
 		_cylinder("BrazierFoot", at + Vector3(0, 0.07, 0), 0.29, 0.14, _bronze)
@@ -399,10 +468,12 @@ func _build_lighting() -> void:
 		var light := OmniLight3D.new()
 		light.name = "BrazierGlow"
 		light.position = at + Vector3(0, 1.67, 0)
-		light.light_color = Color("ffbd74")
-		light.light_energy = 2.3
-		light.omni_range = 4.5
-		light.omni_attenuation = 1.6
+		light.light_color = Color("ffc48a")
+		light.light_energy = 2.0 if side < 0.0 else 1.3
+		light.omni_range = 4.0
+		light.omni_attenuation = 1.5
+		light.shadow_enabled = true
+		light.light_size = 0.16
 		add_child(light)
 		_lamps.append(light)
 		_lamp_energy.append(light.light_energy)
@@ -411,12 +482,13 @@ func _build_lighting() -> void:
 func _build_camera() -> void:
 	var camera := Camera3D.new()
 	camera.name = "CampCamera"
-	camera.position = Vector3(6.0, 5.3, 8.8)
-	camera.fov = 49.0
+	# Inside the tent, looking across the map toward the open camp entrance.
+	camera.position = Vector3(2.4, 3.85, -3.75)
+	camera.fov = 55.0
 	camera.near = 0.1
-	camera.far = 100.0
+	camera.far = 140.0
 	add_child(camera)
-	camera.look_at(Vector3(0, 1.3, -0.5), Vector3.UP)
+	camera.look_at(Vector3(0, 1.25, 0.65), Vector3.UP)
 	camera.current = true
 
 

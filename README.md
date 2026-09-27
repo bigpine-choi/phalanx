@@ -1,6 +1,6 @@
 # Phalanx Headquarters · 마케도니아 원정군 사령부
 
-Windows Godot 4.7.2용 3D 사령부 프로토타입입니다. 입구의 고정 카메라에서 작전 테이블을 바라보고, 테이블을 클릭해 기존 2D 투자 대시보드를 엽니다. 바닥·천막·기둥·지도·말·깃발·상자는 Godot 기본 메시와 재질로 구성하며 외부 에셋이나 추가 패키지가 필요하지 않습니다.
+Windows Godot 4.7.2용 3D 사령부 프로토타입입니다. 천막 안의 고정 카메라에서 작전 테이블과 입구 너머 원정군 야영지를 바라보고, 테이블을 클릭해 기존 2D 투자 대시보드를 엽니다. 해질녘 구도에 처진 천막과 먼 야영지를 배치하고, 목재·천·청동·양피지·흙은 서로 다른 절차적 셰이더 재질을 사용합니다. 메시와 재질을 프로젝트 안에서 생성하므로 외부 에셋이나 추가 패키지가 필요하지 않습니다.
 
 **모든 가격·차트·분석 문구·점수·계좌·매매계획은 UI 검증용 가상 데이터입니다.** 실시간 시세, 실제 계좌, 주문 기능, 기존 Python 투자 엔진은 연결되어 있지 않습니다.
 
@@ -35,14 +35,17 @@ $godot = 'C:\Users\hanso\Tools\Godot\Godot_v4.7.2-stable_win64.exe'
 $godot = 'C:\Users\hanso\Tools\Godot\Godot_v4.7.2-stable_win64.exe'
 & $godot --headless --path . --script res://tests/smoke_test.gd
 & $godot --headless --path . --script res://tests/camp_smoke_test.gd
+& $godot --headless --path . --script res://tests/camp_visual_test.gd
 & $godot --headless --path . --quit-after 60
 ```
 
 성공 시 테스트는 각각 `PHALANX_SMOKE_TEST: PASS`, `PHALANX_CAMP_SMOKE_TEST: PASS`를 출력하고 종료 코드 0을 반환합니다. 통합 테스트는 설정된 메인 씬 로딩, 화면 좌표 마우스 입력에 의한 테이블 호버·열기, 닫기 버튼·Esc, 뒤쪽 클릭 차단, 인스턴스·신호 중복 방지, 두 창 크기에서 조작부의 스크롤 접근성을 확인합니다.
 
+추가 구도 테스트는 `PHALANX_CAMP_VISUAL_TEST: PASS`를 출력합니다. 천막 메시·법선, 외부 텍스처가 필요 없는 재질, 야영지 구성, 두 창 크기에서 테이블 크기와 지도 중심의 화면 위치를 검사합니다. 비대화형 구조·구도 검증이며 셰이더의 실제 색감·음영·화질에 대한 시각 검토를 대신하지 않습니다.
+
 비대화형 검증만으로 실제 렌더링 품질이나 물리 마우스 조작까지 확인할 수는 없습니다. Godot에서 다음 항목도 확인합니다.
 
-1. F5 실행 후 따뜻한 조명 아래 바닥·천막·테이블·지도·말·깃발·상자가 보이고, 지붕이 테이블을 가리지 않는지 확인합니다.
+1. F5 실행 후 해질녘 조명 아래 목재·천·청동·양피지·흙 재질이 구분되고, 입구 너머 야영지가 보이며, 지붕이 테이블을 가리지 않는지 확인합니다.
 2. 테이블 위아래로 마우스를 움직여 강조·안내가 켜지고 꺼지는지 확인합니다.
 3. 클릭으로 대시보드를 열고 검색·차트 기간·목표 비중·모의 계획을 조작합니다. 가상 데이터 표시도 확인합니다.
 4. 닫기와 Esc로 여러 번 열고 닫아 UI가 겹치지 않고, 설정한 비중이 유지되는지 확인합니다.
@@ -54,12 +57,15 @@ $godot = 'C:\Users\hanso\Tools\Godot\Godot_v4.7.2-stable_win64.exe'
 
 - `scenes/command_camp.tscn`, `scripts/command_camp.gd`: 시작 씬과 사령부 구성요소 연결
 - `scripts/camp_environment.gd`: 기본 메시·재질, 고정 카메라, 조명, 깃발의 미세한 움직임
+- `scripts/camp_materials.gd`, `shaders/camp_*.gdshader`: 목재·천·청동·양피지·흙의 절차적 재질 생성
+- `scripts/camp_backdrop.gd`: 입구 너머 야영지 천막·깃발·먼 지형
 - `scripts/table_interaction.gd`: 작전 테이블의 호버와 클릭 판정
 - `scripts/dashboard_overlay.gd`: 대시보드 지연 생성·재사용, 닫기·Esc, 입력 차단
 - `scenes/headquarters.tscn`, `scripts/headquarters.gd`: 기존 2D 대시보드와 반응형 배치
 - `scripts/price_chart.gd`: 일봉·거래량·20일 평균선과 OHLC 확인
 - `scripts/demo_data.gd`: 가상 데이터, 자산·매매계획 계산
 - `tests/smoke_test.gd`, `tests/camp_smoke_test.gd`: 기존 기능과 사령부 통합 검증
+- `tests/camp_visual_test.gd`: 천막·재질·야영지 구조와 두 창 크기의 카메라 구도 검증
 
 가상 계좌의 평가자산은 100,000,000원이며 보유종목 평가액 69,070,000원과 현금 30,930,000원의 합입니다. 목표 수량은 `floor(평가자산 × 목표 비중 / 가격)`으로 계산합니다. 매도 대금을 즉시 사용할 수 있다고 가정하며 수수료·세금·결제 시차·체결 오차는 반영하지 않습니다.
 
