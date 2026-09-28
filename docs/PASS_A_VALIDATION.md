@@ -1,5 +1,7 @@
 # 패스 A 검증 기록 · 2026-09-28
 
+> 과거 1인칭 구현의 검증 기록입니다. 2026-09-28 설계 정정 이후의 쿼터뷰 야영지·고정시점 사령부 흐름을 검증한 결과가 아닙니다. 현재 기준은 [README](../README.md)를 따릅니다.
+
 ## 보존 범위와 구현
 
 프로젝트는 `C:\Users\hanso\dev\phalanx-godot-prototype\phalanx-headquarters`이며 적용되는 `AGENTS.md`는 프로젝트·상위 경로·하위 검색에서 발견되지 않았다. `feature/camp-first-person`, HEAD `1ab3220a7403e76a545e1078581b664844941fb5`의 미커밋 1인칭 구현을 작업 전 임시 사본으로 보존하고 그 위에 패스 A를 구현했다. Git 초기화·커밋·병합·푸시·리셋은 하지 않았다.

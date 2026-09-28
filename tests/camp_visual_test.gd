@@ -1,7 +1,10 @@
 extends SceneTree
+## HISTORICAL: art pass B first-person composition; not validation of the current quarter-view flow.
+## Current scene-flow regression: res://tests/quarter_flow_test.gd.
 ## Structural/framing regression checks. Headless checks do not replace visual art QA.
 
 const CampMaterials = preload("res://scripts/camp_materials.gd")
+const CampTable = preload("res://scripts/camp_table.gd")
 
 var failures: int = 0
 
@@ -58,6 +61,9 @@ func _check_first_person_hud(camp: Node, camera: Camera3D, window_size: Vector2i
 	var bounds := Rect2(Vector2.ZERO, Vector2(window_size))
 	var hint: Label = camp.get("hover_hint") as Label
 	check(hint != null and bounds.encloses(hint.get_global_rect()), "Exploration instructions must fit at %s" % window_size)
+	var prompt: Control = camp.get("capture_prompt")
+	check(prompt.visible and bounds.encloses(prompt.get_global_rect()), "The sole capture prompt must fit at %s" % window_size)
+	check(prompt.get_global_rect().position.y > window_size.y * 0.80, "Capture prompt must leave the map and centre view clear")
 	var crosshair: Control = camp.get("crosshair") as Control
 	check(crosshair != null, "First-person HUD must have a crosshair")
 	if crosshair != null:
@@ -65,6 +71,10 @@ func _check_first_person_hud(camp: Node, camera: Camera3D, window_size: Vector2i
 		check(crosshair.get_global_rect().get_center().distance_to(bounds.get_center()) < 3.0, "Crosshair must be centered at %s" % window_size)
 	check(not camera.is_position_behind(Vector3(0, 1.04, 0)), "Initial view must face the operations table")
 	check(bounds.has_point(camera.unproject_position(Vector3(0, 1.04, 0))), "Table center must be visible from initial human-eye view at %s" % window_size)
+	var near_map := camera.unproject_position(Vector3(0, CampTable.MAP_HEIGHT, -0.80))
+	var far_map := camera.unproject_position(Vector3(0, CampTable.MAP_HEIGHT, 0.75))
+	check(near_map.y - far_map.y > window_size.y * 0.15, "The readable map field must occupy at least 15% of the view height")
+	check(near_map.y < window_size.y * 0.80 and far_map.y > window_size.y * 0.45, "Map must sit in the lower half above the instructions")
 	print("CAMP_FIRST_PERSON_HUD %s: eye %s, table center %s" % [window_size, camera.global_position, camera.unproject_position(Vector3(0, 1.04, 0))])
 
 func _check_pass_a_geometry(camp: Node, environment: Node) -> void:
@@ -73,7 +83,7 @@ func _check_pass_a_geometry(camp: Node, environment: Node) -> void:
 	if furniture != null:
 		var top := furniture.get_node("TableTopPlank") as MeshInstance3D
 		var top_y := top.position.y + top.mesh.get_aabb().end.y
-		check(absf(top_y - 1.02) < 0.002, "Tabletop must match its standing-height collision volume")
+		check(absf(top_y - CampTable.TABLE_TOP) < 0.002, "Tabletop must match its standing-height collision volume")
 		var paper := furniture.get_node("ParchmentMap") as MeshInstance3D
 		var normals: PackedVector3Array = paper.mesh.surface_get_arrays(0)[Mesh.ARRAY_NORMAL]
 		var underside := false
@@ -90,7 +100,7 @@ func _check_pass_a_geometry(camp: Node, environment: Node) -> void:
 	var review := camp.get_node_or_null("ReviewCamera") as Camera3D
 	check(review != null and not review.current, "Fixed review camera must leave the player camera active")
 	var solid := camp.get_node("CampCollision/TableSolid/Shape") as CollisionShape3D
-	check(absf(solid.shape.size.y - 1.02) < 0.002, "Movement proxy must match the new tabletop height")
+	check(absf(solid.shape.size.y - CampTable.TABLE_TOP) < 0.002, "Movement proxy must match the new tabletop height")
 
 func _run() -> void:
 	root.content_scale_factor = 1.0

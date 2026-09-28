@@ -3,8 +3,9 @@ extends Node3D
 ## Geometry is deterministic; it has no input, dashboard or collision responsibilities.
 
 const Materials := preload("res://scripts/camp_materials.gd")
-const TABLE_TOP: float = 1.02
-const MAP_HEIGHT: float = 1.029
+const Scroll := preload("res://scripts/camp_scroll.gd")
+const TABLE_TOP: float = 0.94
+const MAP_HEIGHT: float = TABLE_TOP + 0.009
 const PAPER_THICKNESS: float = 0.006
 
 var _wood: Material
@@ -20,11 +21,11 @@ var _ink_names: Dictionary = {}
 func _ready() -> void:
 	name = "OperationsFurniture"
 	_wood = Materials.wood(Color("574030"))
-	_dark = Materials.wood(Color("352921"))
+	_dark = Materials.wood(Color("453226"))
 	_vertical = Materials.wood(Color("4c3929"), true)
 	_bronze = Materials.bronze(Color("8e7046"))
 	_red = Materials.cloth(Color("591f29"))
-	_paper = Materials.parchment(Color("c9b589"))
+	_paper = Materials.parchment(Color("d0bd96"))
 	_build_table()
 	_build_map()
 	_flush_ink()
@@ -118,20 +119,20 @@ func _beveled_box(node_name: String, at: Vector3, size: Vector3, bevel: float, m
 
 func _build_table() -> void:
 	# A broad, chamfered slab gives weight without a deep apron blocking the map.
-	_beveled_box("TableTopCore", Vector3(0, TABLE_TOP - 0.125, 0), Vector3(3.8, 0.23, 2.5), 0.027, _dark)
+	_beveled_box("TableTopCore", Vector3(0, TABLE_TOP - 0.075, 0), Vector3(3.8, 0.13, 2.5), 0.024, _dark)
 	for index in 7:
 		var z: float = -1.205 + (float(index) + 0.5) * 2.41 / 7.0
 		var wood: Material = Materials.wood(Color("604734").darkened(float(index % 3) * 0.035))
 		_beveled_box("TableTopPlank", Vector3(0, TABLE_TOP - 0.017, z), Vector3(3.72, 0.034, 2.41 / 7.0 - 0.005), 0.005, wood)
 	for z: float in [-1.065, 1.065]:
-		_beveled_box("TableApron", Vector3(0, 0.79, z), Vector3(3.40, 0.16, 0.12), 0.012, _dark)
-		_box("TableApronInlay", Vector3(0, 0.806, z + signf(z) * 0.063), Vector3(3.08, 0.011, 0.006), _wood)
+		_beveled_box("TableApron", Vector3(0, 0.735, z), Vector3(3.40, 0.14, 0.12), 0.018, _dark)
+		_box("TableApronInlay", Vector3(0, 0.756, z + signf(z) * 0.063), Vector3(3.08, 0.008, 0.006), _wood)
 	for x: float in [-1.43, 1.43]:
 		_beveled_box("TableTrestleFoot", Vector3(x, 0.105, 0), Vector3(0.38, 0.17, 2.12), 0.032, _dark)
-		_beveled_box("TableTrestle", Vector3(x, 0.715, 0), Vector3(0.32, 0.18, 2.17), 0.020, _wood)
+		_beveled_box("TableTrestle", Vector3(x, 0.715, 0), Vector3(0.30, 0.18, 2.17), 0.025, _wood)
 		for z: float in [-0.82, 0.82]:
-			_beveled_box("TableLeg", Vector3(x, 0.43, z), Vector3(0.27, 0.70, 0.27), 0.025, _vertical)
-			_beveled_box("TableBronzeFoot", Vector3(x, 0.18, z), Vector3(0.286, 0.14, 0.286), 0.014, _bronze)
+			_beveled_box("TableLeg", Vector3(x, 0.43, z), Vector3(0.24, 0.70, 0.24), 0.030, _vertical)
+			_beveled_box("TableBronzeFoot", Vector3(x, 0.18, z), Vector3(0.255, 0.14, 0.255), 0.014, _bronze)
 			_beveled_box("TableJoinCollar", Vector3(x, 0.70, z), Vector3(0.31, 0.09, 0.31), 0.012, _wood)
 			_box("TableMortisePeg", Vector3(x + signf(x) * 0.144, 0.68, z), Vector3(0.025, 0.07, 0.075), _dark)
 		_beveled_box("TableStretcherJoint", Vector3(x, 0.33, 0), Vector3(0.35, 0.25, 0.25), 0.018, _vertical)
@@ -140,7 +141,7 @@ func _build_table() -> void:
 	for x: float in [-1.76, 1.76]:
 		for z: float in [-1.12, 1.12]:
 			_beveled_box("TableCornerPlate", Vector3(x, TABLE_TOP + 0.004, z), Vector3(0.17, 0.009, 0.14), 0.002, _bronze)
-			_box("TableCornerStrap", Vector3(x, 0.935, signf(z) * 1.249), Vector3(0.15, 0.13, 0.009), _bronze)
+			_beveled_box("TableCornerStrap", Vector3(x, TABLE_TOP - 0.068, signf(z) * 1.249), Vector3(0.15, 0.085, 0.010), 0.0015, _bronze)
 			for offset: float in [-0.045, 0.045]:
 				_cylinder("TableRivet", Vector3(x + offset, TABLE_TOP + 0.011, z), 0.011, 0.007, _bronze)
 	# Retain existing bench placement and names: collision discovery uses these.
@@ -154,7 +155,7 @@ func _paper_height(point: Vector2) -> float:
 	# long coast triangles would cut through the paper or float above the sea.
 	var edge_x: float = pow(maxf(0.0, (absf(point.x) - 1.42) / 0.12), 3.0)
 	var edge_z: float = pow(maxf(0.0, (absf(point.y) - 0.80) / 0.12), 3.0)
-	return MAP_HEIGHT + edge_x * (0.012 + 0.011 * sin(point.y * 6.0 + 0.5)) + edge_z * (0.013 + 0.008 * cos(point.x * 4.2))
+	return MAP_HEIGHT + edge_x * (0.023 + 0.017 * sin(point.y * 6.0 + 0.5)) + edge_z * (0.020 + 0.012 * cos(point.x * 4.2))
 
 
 func _paper_point(column: int, row: int) -> Vector3:
@@ -315,6 +316,8 @@ func _ridge(start: Vector2, finish: Vector2, width: float, height: float, materi
 				normal2 = -normal2
 			_triangle(surface, a, b, c, normal1)
 			_triangle(surface, a, c, d, normal2)
+	surface.generate_normals()
+	surface.index()
 	_mesh("MapTerrainRidge", surface.commit(), Vector3.ZERO, material)
 	# Engraver-like short strokes suggest slopes beyond the physical relief.
 	var along: Vector2 = (finish - start).normalized()
@@ -364,9 +367,9 @@ func _legion_marker(at: Vector2, color: Material, facing: float) -> void:
 
 func _build_map() -> void:
 	_build_paper()
-	var sea: Material = Materials.parchment(Color("697b79"))
-	var land: Material = Materials.parchment(Color("aa9872"))
-	var ink: Material = _mat(Color("665838"))
+	var sea: Material = Materials.parchment(Color("6d8583"))
+	var land: Material = Materials.parchment(Color("b2a17f"))
+	var ink: Material = _mat(Color("5f513a"))
 	var pale_ink: Material = _mat(Color("918364"))
 	var route_ink: Material = _mat(Color("7e3430"))
 	_polygon("MapSea", PackedVector2Array([Vector2(-1.41, -0.77), Vector2(1.40, -0.77), Vector2(1.42, 0.75), Vector2(-1.42, 0.77)]), sea, 0.001)
@@ -420,14 +423,13 @@ func _build_map() -> void:
 
 
 func _build_writing_tools() -> void:
+	var scroll_mesh := Scroll.create_mesh(1.39)
 	for x: float in [-1.66, 1.66]:
-		var scroll := _cylinder("RolledParchment", Vector3(x, TABLE_TOP + .065, .18), .061, 1.39, _paper)
-		scroll.rotation.x = PI * .5
+		_mesh("RolledParchment", scroll_mesh, Vector3(x, TABLE_TOP + .065, .18), _paper)
 		var tie := _cylinder("ScrollTie", Vector3(x, TABLE_TOP + .065, .18), .064, .065, _red)
 		tie.rotation.x = PI * .5
-		for z: float in [-.525, .885]:
-			var core := _cylinder("ScrollCore", Vector3(x, TABLE_TOP + .065, z), .027, .012, _wood)
-			core.rotation.x = PI * .5
+		var knot := _beveled_box("ScrollBindingKnot", Vector3(x, TABLE_TOP + .133, .18), Vector3(.068,.018,.055), .005, _red)
+		knot.rotation.y = 0.3 * signf(x)
 	_cylinder("InkPot", Vector3(-1.31, TABLE_TOP + .064, 1.077), .056, .12, _dark)
 	_cylinder("InkPotOpening", Vector3(-1.31, TABLE_TOP + .126, 1.077), .038, .005, _mat(Color("17191a")))
 	var stylus := _cylinder("WritingStylus", Vector3(-.78, TABLE_TOP + .012, 1.079), .012, .50, _bronze)

@@ -1,0 +1,42 @@
+[
+	{
+		"as_of": "2026-09-28",
+		"code": "005930",
+		"fetched_at": 1790608255,
+		"rows": 241,
+		"source": "한국투자증권 KIS",
+		"state": "ready"
+	},
+	{
+		"as_of": "2026-09-28",
+		"code": "000660",
+		"fetched_at": 1790608258,
+		"rows": 241,
+		"source": "한국투자증권 KIS",
+		"state": "ready"
+	},
+	{
+		"as_of": "2026-09-28",
+		"code": "005380",
+		"fetched_at": 1790608261,
+		"rows": 241,
+		"source": "한국투자증권 KIS",
+		"state": "ready"
+	},
+	{
+		"as_of": "2026-09-28",
+		"code": "035420",
+		"fetched_at": 1790608263,
+		"rows": 241,
+		"source": "한국투자증권 KIS",
+		"state": "ready"
+	},
+	{
+		"as_of": "2026-09-28",
+		"code": "069500",
+		"fetched_at": 1790608266,
+		"rows": 241,
+		"source": "한국투자증권 KIS",
+		"state": "ready"
+	}
+]

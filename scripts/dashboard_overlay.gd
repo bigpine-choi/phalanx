@@ -5,12 +5,14 @@ signal opened
 signal closed
 
 const DashboardScene := preload("res://scenes/headquarters.tscn")
+const TerminalTheme := preload("res://scripts/terminal_theme.gd")
 
 var dashboard: Control
 var blocker: Control
 var close_button: Button
 var dashboard_host: Control
 var _last_escape_event: InputEventKey
+@export var framed_interior := false
 
 func _ready() -> void:
 	layer = 10
@@ -20,43 +22,43 @@ func _ready() -> void:
 	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(blocker)
 	var background := ColorRect.new()
-	background.color = Color("0c131e")
+	background.color = Color(0.025, 0.032, 0.029, 0.80) if framed_interior else Color("101817")
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	blocker.add_child(background)
 	var layout := VBoxContainer.new()
 	layout.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if framed_interior:
+		layout.offset_left = 12
+		layout.offset_top = 10
+		layout.offset_right = -12
+		layout.offset_bottom = -10
 	layout.add_theme_constant_override("separation", 0)
 	blocker.add_child(layout)
 	var header := PanelContainer.new()
 	var header_style := StyleBoxFlat.new()
-	header_style.bg_color = Color("251b1c")
-	header_style.border_color = Color("a4824c")
+	header_style.bg_color = Color("0c1118")
+	header_style.border_color = Color("273341")
 	header_style.border_width_bottom = 1
 	header_style.content_margin_left = 28
 	header_style.content_margin_right = 28
-	header_style.content_margin_top = 10
-	header_style.content_margin_bottom = 10
+	header_style.content_margin_top = 4
+	header_style.content_margin_bottom = 4
 	header.add_theme_stylebox_override("panel", header_style)
 	layout.add_child(header)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 20)
 	header.add_child(row)
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray(["Malgun Gothic", "맑은 고딕", "Noto Sans CJK KR"])
-	var ui_theme := Theme.new()
-	ui_theme.default_font = font
-	ui_theme.default_font_size = 14
-	blocker.theme = ui_theme
+	blocker.theme = TerminalTheme.create()
 	var title := Label.new()
-	title.text = "작전 테이블  /  투자 대시보드  ·  가상 데이터"
-	title.add_theme_color_override("font_color", Color("e9d4ab"))
+	title.text = "사령부  /  투자 워크스페이스"
+	title.add_theme_color_override("font_color", Color("91a2b6"))
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(title)
 	close_button = Button.new()
 	close_button.name = "ReturnToCamp"
-	close_button.text = "사령부로 돌아가기  ·  Esc"
-	close_button.custom_minimum_size = Vector2(220, 40)
+	close_button.text = "사령부로  ·  Esc"
+	close_button.custom_minimum_size = Vector2(160, 30)
 	close_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	close_button.pressed.connect(close_dashboard)
 	row.add_child(close_button)
@@ -87,6 +89,7 @@ func close_dashboard() -> void:
 	if not is_open():
 		return
 	if is_instance_valid(dashboard):
+		dashboard.flush_profile()
 		dashboard.dialog.hide()
 	blocker.hide()
 	closed.emit()

@@ -1,4 +1,6 @@
 extends SceneTree
+## HISTORICAL: archived first-person design only; not validation of the current quarter-view flow.
+## Current scene-flow regression: res://tests/quarter_flow_test.gd.
 ## Physics/input regression checks using synthetic events, not physical GUI input.
 
 var failures := 0
@@ -123,12 +125,19 @@ func _check_movement_and_focus() -> void:
 	check(straight_speed > 2.0 and is_equal_approx(straight_speed, diagonal_speed), "Diagonal input must retain walking speed rather than accelerate")
 	_key(KEY_W, false)
 	_key(KEY_D, false)
+	# A GPU window may have already delivered the capture-warp event during
+	# the movement checks. Start a fresh capture and inject its sentinel before
+	# yielding, so this assertion tests the same first event in both renderers.
+	print("CAPTURE_EVENT_ALREADY_DELIVERED renderer=", DisplayServer.get_name(), " value=", not player.get("_ignore_next_motion"))
+	player.call("pause_exploration")
+	player.call("begin_exploration")
 	var yaw: float = player.rotation.y
 	var head: Node3D = player.get("head") as Node3D
 	var pitch: float = head.rotation.x
 	_motion(Vector2(1000, 1000))
-	await _settle()
+	Input.flush_buffered_events()
 	check(is_equal_approx(player.rotation.y, yaw) and is_equal_approx(head.rotation.x, pitch), "The first capture-warp mouse event must be ignored")
+	await _settle()
 	_motion(Vector2(120, 10000))
 	await _settle()
 	check(not is_equal_approx(player.rotation.y, yaw), "Mouse horizontal motion must rotate the player")
@@ -156,14 +165,14 @@ func _check_movement_and_focus() -> void:
 	player.notification(Node.NOTIFICATION_WM_WINDOW_FOCUS_IN)
 	check(not player.get("exploring"), "Focus return must require a fresh exploration click")
 	player.call("begin_exploration")
-	_key(KEY_W, true, true)
-	await _settle(6)
-	check(player.position.is_equal_approx(paused_at), "Focus return must clear held keys and ignore auto-repeat from an old press")
 	yaw = player.rotation.y
 	pitch = head.rotation.x
 	_motion(Vector2(1500, 1500))
-	await _settle()
+	Input.flush_buffered_events()
 	check(is_equal_approx(player.rotation.y, yaw) and is_equal_approx(head.rotation.x, pitch), "First mouse motion after focus return must not jump the view")
+	_key(KEY_W, true, true)
+	await _settle(6)
+	check(player.position.is_equal_approx(paused_at), "Focus return must clear held keys and ignore auto-repeat from an old press")
 	_key(KEY_W, false)
 
 func _check_interaction() -> void:

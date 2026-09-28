@@ -1,6 +1,8 @@
 extends Node3D
 ## Simple solid proxies keep movement and sight queries independent of set dressing.
 
+const CommandTable := preload("res://scripts/camp_table.gd")
+
 var _built := false
 
 
@@ -23,7 +25,7 @@ func build(environment: Node3D) -> void:
 	_box("TentSideWallLeft", Vector3(-4.17, 1.8, -1.8), Vector3(0.40, 3.6, 4.7))
 	_box("TentSideWallRight", Vector3(4.17, 1.8, -1.8), Vector3(0.40, 3.6, 4.7))
 	# A solid table volume prevents walking between legs or clipping into the apron.
-	_box("TableSolid", Vector3(0, 0.51, 0), Vector3(3.8, 1.02, 2.5))
+	_box("TableSolid", Vector3(0, CommandTable.TABLE_TOP * 0.5, 0), Vector3(3.8, CommandTable.TABLE_TOP, 2.5))
 	for mesh: MeshInstance3D in environment.find_children("*", "MeshInstance3D", true, false):
 		var mesh_name := String(mesh.name)
 		if mesh_name.begins_with("TentPost"):

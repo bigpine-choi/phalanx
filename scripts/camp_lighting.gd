@@ -1,5 +1,5 @@
 extends Node3D
-## Sunset and small fires share a direction/colour story; no fog or bloom veil.
+## Warm canvas and parchment against a cool valley; depth fog starts beyond the camp.
 
 const Materials = preload("res://scripts/camp_materials.gd")
 const FIRE = preload("res://shaders/camp_fire.gdshader")
@@ -31,31 +31,41 @@ func _atmosphere() -> void:
 	sky.sky_material = sky_material
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color("a7b5cb")
-	environment.ambient_light_energy = 0.27
+	environment.ambient_light_color = Color("b6bcc8")
+	environment.ambient_light_energy = 0.34
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.ssao_enabled = true
-	environment.ssao_radius = 0.9
-	environment.ssao_intensity = 1.3
+	environment.ssao_radius = 0.55
+	environment.ssao_intensity = 0.85
 	environment.glow_enabled = false
-	environment.fog_enabled = false
+	# Depth mode leaves the entire walkable area clear; no volumetric glow.
+	environment.fog_enabled = true
+	environment.fog_mode = Environment.FOG_MODE_DEPTH
+	environment.fog_depth_begin = 24.0
+	environment.fog_depth_end = 175.0
+	environment.fog_depth_curve = 0.85
+	environment.fog_density = 0.72
+	environment.fog_light_color = Color("a3acb4")
+	environment.fog_light_energy = 0.70
+	environment.fog_sky_affect = 0.0
+	environment.fog_sun_scatter = 0.0
 	world.environment = environment
 	add_child(world)
 	var sun := DirectionalLight3D.new()
 	sun.name = "LateAfternoonSun"
 	sun.rotation_degrees = SUN_ROTATION
-	sun.light_color = Color("ffdfb3")
-	sun.light_energy = 1.55
-	sun.light_angular_distance = 1.0
+	sun.light_color = Color("ffe4c3")
+	sun.light_energy = 1.35
+	sun.light_angular_distance = 2.2
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 70.0
 	add_child(sun)
 	# A restrained ceiling bounce keeps parchment readable inside the red canopy.
 	var bounce := OmniLight3D.new()
 	bounce.name = "MapWarmFill"
-	bounce.position = Vector3(0, 2.75, 0.2)
-	bounce.light_color = Color("f3dec3")
-	bounce.light_energy = 1.05
+	bounce.position = Vector3(-0.6, 2.9, -0.55)
+	bounce.light_color = Color("f4e8d4")
+	bounce.light_energy = 1.35
 	bounce.omni_range = 5.1
 	bounce.omni_attenuation = 1.3
 	bounce.shadow_enabled = true

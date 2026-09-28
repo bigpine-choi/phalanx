@@ -91,35 +91,41 @@ func _build_terrain() -> void:
 	ground.size = Vector2(270, 170)
 	_mesh("DistantSand", ground, Vector3(0, -0.16, 87), Materials.ground(Color("817461")))
 	_build_river()
-	# Narrow, broken crests and irregular lateral spurs replace smooth dune domes.
-	# Real front/back slopes meet the ground; no vertical skyline image planes.
+	# Seeded, low-frequency erosion replaces periodic absolute-sine saw teeth.
+	# Each ridge has a broad shoulder and real slopes on both sides.
 	for layer in 3:
+		var erosion := FastNoiseLite.new()
+		erosion.seed = 1709 + layer * 743
+		erosion.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		erosion.frequency = 0.035
+		erosion.fractal_octaves = 3
+		erosion.fractal_gain = 0.30
 		var vertices := PackedVector3Array()
 		var indices := PackedInt32Array()
-		for row in 21:
-			var depth_fraction: float = float(row) / 20.0
-			for column in 141:
-				var x: float = -140.0 + float(column) * 2.0
-				var phase: float = x * 0.091 + float(layer) * 1.8
-				var peak: float = absf(sin(phase)) * 0.63 + absf(sin(phase * 2.31 + 0.7)) * 0.29 + absf(sin(phase * 5.07)) * 0.08
-				var valley: float = 1.0 - exp(-pow((x - 7.0) / 24.0, 2.0)) * (0.62 if layer == 0 else 0.30)
-				var ridge_height: float = (7.5 + float(layer) * 5.5 + peak * (9.0 + float(layer) * 3.0)) * valley
-				var crest: float = 0.40 + sin(phase * 0.48) * 0.095 + sin(phase * 2.1) * 0.025
-				var profile: float = pow(maxf(0.0, 1.0 - absf(depth_fraction - crest) / (crest if depth_fraction < crest else 1.0 - crest)), 1.55)
-				var spur: float = sin(depth_fraction * PI) * sin(phase * 3.5 + depth_fraction * 12.0) * 0.7
+		for row in 33:
+			var depth_fraction: float = float(row) / 32.0
+			for column in 225:
+				var x: float = -140.0 + float(column) * 1.25
+				var mass: float = erosion.get_noise_2d(x, 11.0) * 0.5 + 0.5
+				var valley: float = 1.0 - exp(-pow((x - 9.0 - layer * 5.0) / 27.0, 2.0)) * (0.66 if layer == 0 else 0.32)
+				var ridge_height: float = (5.0 + float(layer) * 3.8 + mass * (12.0 + layer * 3.0)) * valley
+				var crest: float = 0.43 + erosion.get_noise_2d(x * 0.62, 93.0) * 0.13
+				var shoulder: float = clampf(1.0 - absf(depth_fraction - crest) / (crest if depth_fraction < crest else 1.0 - crest), 0.0, 1.0)
+				var profile: float = smoothstep(0.0, 1.0, shoulder)
+				var spur: float = sin(depth_fraction * PI) * erosion.get_noise_2d(x * 1.6, depth_fraction * 55.0) * 1.4
 				var edge_falloff: float = smoothstep(0.0, 20.0, 140.0 - absf(x))
-				var z: float = 46.0 + float(layer) * 29.0 + depth_fraction * 43.0 + sin(phase * 0.63) * 4.0
+				var z: float = 46.0 + float(layer) * 29.0 + depth_fraction * 43.0 + erosion.get_noise_2d(x, 160.0) * 5.0
 				vertices.append(Vector3(x, -0.15 + maxf(0.0, profile * ridge_height + spur) * edge_falloff, z))
 				if row > 0 and column > 0:
-					var i: int = row * 141 + column
-					indices.append_array(PackedInt32Array([i - 142, i - 141, i - 1, i - 141, i, i - 1]))
-		var tints: Array[Color] = [Color("766956"), Color("74787b"), Color("8993a0")]
+					var i: int = row * 225 + column
+					indices.append_array(PackedInt32Array([i - 226, i - 225, i - 1, i - 225, i, i - 1]))
+		var tints: Array[Color] = [Color("77796c"), Color("7d8990"), Color("98a4b2")]
 		var rock := _material(tints[layer])
 		# Distant air adds a small cool floor to shadow colour, confined to the
 		# unreachable landscape rather than a scene-wide fog/ambient wash.
 		rock.emission_enabled = true
 		rock.emission = Color("718191")
-		rock.emission_energy_multiplier = 0.035 + float(layer) * 0.050
+		rock.emission_energy_multiplier = 0.06 + float(layer) * 0.045
 		var ridge := _surface("DistantRidge%d" % layer, vertices, indices, rock)
 		ridge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 

@@ -30,8 +30,8 @@ func _ready() -> void:
 	_post_wood = Materials.wood(Color("584634"), true)
 	_dark_wood = Materials.wood(Color("352e26"))
 	_bronze = Materials.bronze(Color("82643e"))
-	_red = Materials.cloth(Color("692c35"))
-	_red_inside = Materials.cloth(Color("7d3641"))
+	_red = Materials.cloth(Color("622833"))
+	_red_inside = Materials.cloth(Color("73323d"))
 	_lining = Materials.cloth(Color("baa382"))
 	_stitch = Materials.cloth(Color("ac8753"))
 	_rope = Materials.cloth(Color("8c7655"))
@@ -193,7 +193,7 @@ func _build_structure() -> void:
 func _roof_point(side: float, u: float, z: float) -> Vector3:
 	var between_rafters: float = absf(sin((z + 4.13) / 3.24 * PI))
 	var transverse_sag: float = sin(u * PI) * (0.19 + between_rafters * 0.055)
-	var sewn_fold: float = sin(z * 10.0 + u * 0.8) * 0.017 * sin(u * PI)
+	var sewn_fold: float = (sin(z * 7.3 + u * 1.8) * 0.023 + sin(z * 12.7 - u * 2.1) * 0.009) * sin(u * PI)
 	return Vector3(side * u * 4.44, ROOF_PEAK - u * (ROOF_PEAK - EAVE_HEIGHT) - transverse_sag - between_rafters * 0.055 + sewn_fold, z)
 
 
@@ -213,7 +213,7 @@ func _build_canvas() -> void:
 				var c := _roof_point(side, u1, z1)
 				var d := _roof_point(side, u0, z1)
 				_quad(outside, a, b, c, d, side < 0.0)
-				var thickness := Vector3(0, -0.018, 0)
+				var thickness := Vector3(0, -0.024, 0)
 				_quad(inside, a + thickness, b + thickness, c + thickness, d + thickness, side > 0.0)
 				if row == 0:
 					_quad(inside, b, a, a + thickness, b + thickness, side < 0.0)
@@ -225,8 +225,8 @@ func _build_canvas() -> void:
 		_finish("CanopyInteriorAndHem", inside, _red_inside)
 		for z: float in [-3.69, -2.28, -0.89, 0.48, 1.86]:
 			for segment in 20:
-				var a := _roof_point(side, float(segment) / 20.0, z) + Vector3.DOWN * 0.024
-				var b := _roof_point(side, float(segment + 1) / 20.0, z) + Vector3.DOWN * 0.024
+				var a := _roof_point(side, float(segment) / 20.0, z) + Vector3.DOWN * 0.030
+				var b := _roof_point(side, float(segment + 1) / 20.0, z) + Vector3.DOWN * 0.030
 				_beam_into(seams, a, b, 0.007, 5)
 	_finish("CanvasRoofSeamBatch", seams, _stitch)
 	_wall("RearCanvas", Vector3(0, 1.47, -4.17), Vector2(8.55, 2.92), 0.0, _lining)
@@ -298,8 +298,8 @@ func _eave_point(side: float, u: float, v: float) -> Vector3:
 
 
 func _wall_point(u: float, v: float, size: Vector2) -> Vector3:
-	var pleats: float = sin(u * TAU * maxf(2.0, size.x * 1.45) + v * 0.48) * 0.073
-	pleats += sin(u * TAU * 3.0) * 0.021
+	var pleats: float = sin(u * TAU * maxf(2.0, size.x * 1.25) + sin(u * 17.3) * 0.6 + v * 0.48) * 0.067
+	pleats += sin(u * TAU * 2.3 + v * 2.1) * 0.029
 	return Vector3((u - 0.5) * size.x, (v - 0.5) * size.y - sin(u * PI) * v * 0.035, pleats * (0.72 + sin(v * PI) * 0.28))
 
 
@@ -342,7 +342,9 @@ func _curtain_point(side: float, u: float, v: float) -> Vector3:
 		var t: float = pow((v - 0.49) / 0.51, 1.4)
 		width = lerpf(0.29, 1.56, t)
 		center = lerpf(4.14, 3.69, t)
-	var depth: float = sin(u * TAU * 5.0 + v * 1.3) * (0.03 + width * 0.072)
+	var fold_phase: float = u * TAU * 4.2 + sin(u * 13.0 + side) * 0.50 + v * 1.3
+	var depth: float = sin(fold_phase) * (0.028 + width * 0.066)
+	depth += sin(u * 47.0 - v * 4.0) * 0.013 * absf(v - 0.49)
 	depth += sin(v * PI) * 0.08
 	return Vector3(side * (center - 4.14 + (u - 0.5) * width), v * 3.0 - 1.5, depth)
 
@@ -381,7 +383,7 @@ func _valance_point(u: float, v: float) -> Vector3:
 	var top: float = ROOF_PEAK - absf(x) / 4.44 * (ROOF_PEAK - EAVE_HEIGHT) - 0.03
 	var scallop: float = sin(fmod(u * 3.0, 1.0) * PI)
 	var bottom: float = 2.98 - scallop * 0.14
-	var fold: float = sin(u * TAU * 12.0 + v * 0.5) * (0.015 + v * 0.018)
+	var fold: float = sin(u * TAU * 10.3 + sin(u * 21.0) * 0.5 + v * 0.8) * (0.023 + v * 0.022)
 	return Vector3(x, lerpf(bottom, top, v), 2.47 + fold)
 
 

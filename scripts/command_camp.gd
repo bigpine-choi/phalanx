@@ -63,9 +63,20 @@ func _build_hud() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", 24)
 	bottom.add_child(row)
-	hover_hint = _label("클릭하여 탐색 시작", 17, Color("e5d3ae"))
-	hover_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	capture_prompt = PanelContainer.new()
+	capture_prompt.name = "CapturePrompt"
+	capture_prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	capture_prompt.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	row.add_child(capture_prompt)
+	var prompt := _label("클릭하여 탐색 시작\nWASD 이동 · 마우스 시선 · Esc 마우스 해제", 14, Color("f4e4c5"))
+	capture_prompt.add_child(prompt)
+	hover_hint = _label("E — 작전 테이블 열기", 17, Color("e5d3ae"))
+	hover_hint.visible = false
 	row.add_child(hover_hint)
+	var spacer := Control.new()
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
 	row.add_child(_label("가상 데이터 사용  ·  실제 계좌 미연결", 12, Color("c8b389")))
 	crosshair = Panel.new()
 	crosshair.name = "AimReticle"
@@ -82,19 +93,6 @@ func _build_hud() -> void:
 	reticle_style.set_border_width_all(1)
 	reticle_style.set_corner_radius_all(3)
 	crosshair.add_theme_stylebox_override("panel", reticle_style)
-	capture_prompt = PanelContainer.new()
-	capture_prompt.name = "CapturePrompt"
-	capture_prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	capture_prompt.add_theme_stylebox_override("panel", _hud_style())
-	hud.add_child(capture_prompt)
-	capture_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	capture_prompt.offset_left = -240
-	capture_prompt.offset_right = 240
-	capture_prompt.offset_top = -44
-	capture_prompt.offset_bottom = 44
-	var prompt := _label("클릭하여 탐색 시작\nWASD 이동 · 마우스 시선 · Esc 마우스 해제", 17, Color("f4e4c5"))
-	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	capture_prompt.add_child(prompt)
 
 func _label(text: String, font_size: int, color: Color) -> Label:
 	var label := Label.new()
@@ -118,7 +116,7 @@ func _hud_style() -> StyleBoxFlat:
 func _table_hover_changed(value: bool) -> void:
 	environment.set_table_highlight(value)
 	if is_instance_valid(hover_hint):
-		hover_hint.text = "E — 작전 테이블 열기" if value else ("WASD 이동 · 마우스 시선 · Esc 마우스 해제" if player.exploring else "클릭하여 탐색 시작")
+		hover_hint.visible = value and player.exploring and not dashboard_overlay.is_open()
 		hover_hint.modulate = Color("ffd895") if value else Color.WHITE
 		crosshair.modulate = Color("ffd895") if value else Color.WHITE
 

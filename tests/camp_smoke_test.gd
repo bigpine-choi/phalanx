@@ -1,4 +1,6 @@
 extends SceneTree
+## HISTORICAL: archived first-person camp only; not validation of the current quarter-view flow.
+## Current scene-flow regression: res://tests/quarter_flow_test.gd.
 
 var failures: int = 0
 var opened_count: int = 0
@@ -87,6 +89,7 @@ func _run() -> void:
 	check(interactor is Area3D and interactor.get_child_count() > 0, "Operation table must have an interaction area")
 	check(not overlay.is_open() and overlay.dashboard == null, "Dashboard must be lazy and initially closed")
 	check(not interactor.interaction_enabled and not player.exploring, "Exploration and table input must wait for the initial click")
+	check(camp.capture_prompt.visible and not camp.hover_hint.visible, "Paused camp must show only the capture instructions")
 	if camera == null:
 		_finish()
 		return
@@ -102,9 +105,11 @@ func _run() -> void:
 	await _settle()
 	check(player.exploring and not overlay.is_open(), "Initial click must capture exploration without opening the table")
 	check(interactor.hovered, "Looking at the nearby table must enable its hover state")
+	check(not camp.capture_prompt.visible and camp.hover_hint.visible, "Nearby table must show only the E prompt while exploring")
 	camera.look_at(camera.global_position + Vector3(0, 0, -1))
 	await _settle()
 	check(not interactor.hovered, "Looking away must clear table hover")
+	check(not camp.capture_prompt.visible and not camp.hover_hint.visible, "Looking away while exploring must hide both contextual prompts")
 	camera.look_at(Vector3(0, 1.04, 0))
 	await _settle()
 	_mouse_click(table_screen)
@@ -142,6 +147,11 @@ func _run() -> void:
 	_escape()
 	await _settle()
 	check(not overlay.is_open() and closed_count == 2, "Escape must close the dashboard")
+	_escape()
+	await _settle()
+	check(camp.capture_prompt.visible and not camp.hover_hint.visible, "Exploration Escape must restore only the capture prompt")
+	_mouse_click(table_screen)
+	await _settle()
 
 	# Native popup event routing is simulated here; real window behavior needs GUI QA.
 	overlay.open_dashboard()

@@ -26,9 +26,9 @@ void fragment() {
 	float oxidation = smoothstep(0.53, 0.85, mottling) * 0.34;
 	vec3 patina = base_color.rgb * vec3(0.54, 0.79, 0.82);
 	ALBEDO = mix(base_color.rgb * (0.90 + hammered * 0.16), patina, oxidation);
-	METALLIC = 0.73 - oxidation * 0.38;
-	ROUGHNESS = 0.42 + mottling * 0.23 + oxidation * 0.18;
-	SPECULAR = 0.40;
+	METALLIC = 0.65 - oxidation * 0.30;
+	ROUGHNESS = 0.57 + mottling * 0.18 + oxidation * 0.16;
+	SPECULAR = 0.30;
 	float height = hammered * 0.00035;
 	vec3 dx = dFdx(VERTEX);
 	vec3 dy = dFdy(VERTEX);

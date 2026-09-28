@@ -1,22 +1,22 @@
 extends Control
-
+## Investment workspace: one shared selection, chart period and allocation model.
+## Demo account stays synthetic; research has a separate public-data provider.
 const Data = preload("res://scripts/demo_data.gd")
 const Chart = preload("res://scripts/price_chart.gd")
-const BG := Color("0c131e")
-const PANEL := Color("131e2d")
-const BORDER := Color("26364a")
-const TEXT := Color("e5edf6")
-const MUTED := Color("8fa2b9")
-const ACCENT := Color("58d4b3")
-const GOLD := Color("d4b678")
-const RED := Color("ee8592")
-
+const T = preload("res://scripts/terminal_theme.gd")
+const Spark = preload("res://scripts/terminal_sparkline.gd")
+const Fixtures = preload("res://scripts/terminal_fixtures.gd")
+const ResearchDetail = preload("res://scripts/research_detail.gd")
+const Store = preload("res://scripts/workspace_store.gd")
+var storage_path := Store.default_path()
 @export var embedded_in_camp := false
 
 var selected := 0
 var targets: Array = []
 var stock_buttons: Array[Button] = []
 var period_buttons: Array[Button] = []
+var workspace_buttons: Array[Button] = []
+var workspace := "market"
 var body: HBoxContainer
 var center: VBoxContainer
 var account: PanelContainer
@@ -40,357 +40,632 @@ var stock_list: VBoxContainer
 var dialog: AcceptDialog
 var updating := false
 var compact := false
+var search: LineEdit
+var market_page: Control
+var portfolio_page: ScrollContainer
+var research_page: ScrollContainer
+var portfolio_split: BoxContainer
+var portfolio_rows: Array[Dictionary] = []
+var research_buttons: Array[Button] = []
+var research_title: Label
+var research_view: Control
+var note_editor: TextEdit
+var note_status: Label
+var notes_by_code: Dictionary = {}
+var brief_panel: PanelContainer
+var watch_panel: PanelContainer
+var market_tiles: Array[Control] = []
+var compact_plan_button: Button
+var account_scroll: ScrollContainer
+var market_strip: Control
+var summary_strip: Control
+var data_badge: Label
+var status_label: Label
+var chart_mode_buttons: Array[Button] = []
+var profile: RefCounted
+var watchlist_codes: Array = []
+var watch_only := true
+var favorite_button: Button
+var all_stocks_button: Button
+var watch_count: Label
+var save_label: Label
+var retry_save_button: Button
+var save_timer: Timer
+var profile_dirty := false
+var save_failed := false
 
 func _ready() -> void:
 	if not embedded_in_camp:
-		var ui_scale := clampf(DisplayServer.screen_get_dpi() / 96.0, 1.0, 2.0)
-		get_window().content_scale_factor = ui_scale
-		if not Engine.is_embedded_in_editor():
-			DisplayServer.window_set_min_size(Vector2i(Vector2(900, 680) * ui_scale))
-	for stock in Data.STOCKS:
+		get_window().min_size = Vector2i(900,680)
+	for stock: Dictionary in Data.STOCKS:
 		targets.append(stock.target)
-	_build_theme()
+	profile = Store.new(storage_path)
+	var saved: Dictionary = profile.load_profile()
+	watchlist_codes = saved.watchlist
+	notes_by_code = saved.notes
+	save_timer = Timer.new()
+	save_timer.one_shot = true
+	save_timer.wait_time = 0.5
+	save_timer.timeout.connect(flush_profile)
+	add_child(save_timer)
+	theme = T.create()
 	_build_ui()
 	_select_stock(0)
-	get_viewport().size_changed.connect(_responsive)
+	_filter_stocks("")
+	_refresh_save_status()
+	resized.connect(_responsive)
 	_responsive.call_deferred()
 
-func _build_theme() -> void:
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray(["Malgun Gothic", "맑은 고딕", "Noto Sans CJK KR"])
-	var ui_theme := Theme.new()
-	ui_theme.default_font = font
-	ui_theme.default_font_size = 14
-	ui_theme.set_color("font_color", "Label", TEXT)
-	ui_theme.set_color("font_color", "Button", TEXT)
-	ui_theme.set_color("font_hover_color", "Button", Color.WHITE)
-	ui_theme.set_color("font_pressed_color", "Button", ACCENT)
-	ui_theme.set_stylebox("normal", "Button", _style(Color("192637"), BORDER, 7, 12))
-	ui_theme.set_stylebox("hover", "Button", _style(Color("22374a"), Color("4d7184"), 7, 12))
-	ui_theme.set_stylebox("pressed", "Button", _style(Color("173a39"), ACCENT, 7, 12))
-	ui_theme.set_stylebox("focus", "Button", _style(Color(0, 0, 0, 0), GOLD, 7, 0))
-	ui_theme.set_stylebox("disabled", "Button", _style(Color("19222e"), BORDER, 7, 12))
-	ui_theme.set_stylebox("normal", "LineEdit", _style(Color("0e1724"), BORDER, 6, 10))
-	ui_theme.set_stylebox("focus", "LineEdit", _style(Color(0, 0, 0, 0), ACCENT, 6, 0))
-	ui_theme.set_color("font_color", "LineEdit", TEXT)
-	ui_theme.set_color("font_placeholder_color", "LineEdit", MUTED)
-	ui_theme.set_stylebox("background", "ProgressBar", _style(Color("283447"), Color.TRANSPARENT, 3, 0))
-	ui_theme.set_stylebox("fill", "ProgressBar", _style(ACCENT, Color.TRANSPARENT, 3, 0))
-	theme = ui_theme
-
-func _style(color: Color, border: Color, radius: int, padding: int) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.border_color = border
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(radius)
-	style.content_margin_left = padding
-	style.content_margin_right = padding
-	style.content_margin_top = padding
-	style.content_margin_bottom = padding
-	return style
-
-func _label(text: String, font_size: int = 14, color: Color = TEXT) -> Label:
+func _label(text: String, font_size := 14, color := T.TEXT, mono := false) -> Label:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", color)
+	label.add_theme_font_size_override("font_size",font_size)
+	label.add_theme_color_override("font_color",color)
+	if mono:
+		label.add_theme_font_override("font",T.font(true))
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
 
-func _wrap(text: String, font_size: int = 14, color: Color = TEXT) -> Label:
-	var label := _label(text, font_size, color)
+func _wrap(text: String, font_size := 14, color := T.TEXT) -> Label:
+	var label := _label(text,font_size,color)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return label
 
-func _vbox(gap: int = 12) -> VBoxContainer:
+func _vbox(gap := 10) -> VBoxContainer:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", gap)
+	box.add_theme_constant_override("separation",gap)
 	return box
 
-func _hbox(gap: int = 12) -> HBoxContainer:
+func _hbox(gap := 10) -> HBoxContainer:
 	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", gap)
+	box.add_theme_constant_override("separation",gap)
 	return box
 
-func _panel() -> PanelContainer:
+func _panel(padding := 14) -> PanelContainer:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _style(PANEL, BORDER, 12, 20))
+	panel.add_theme_stylebox_override("panel",T.style(T.PANEL,T.BORDER,7,padding))
 	return panel
 
-func _expand(control: Control) -> void:
+func _expand(control: Control, vertical := false) -> void:
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if vertical:
+		control.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+func _button(text: String, action: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.pressed.connect(action)
+	return button
+
+func _section(parent: Node, heading: String, caption := "") -> void:
+	var row := _hbox()
+	parent.add_child(row)
+	var label := _label(heading,14)
+	_expand(label)
+	row.add_child(label)
+	if not caption.is_empty():
+		row.add_child(_label(caption,11,T.MUTED))
 
 func _divider(parent: Node) -> void:
-	var line := HSeparator.new()
-	line.add_theme_color_override("separator", BORDER)
+	var line := ColorRect.new()
+	line.color = T.BORDER
+	line.custom_minimum_size.y = 1
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(line)
 
 func _build_ui() -> void:
 	var background := ColorRect.new()
-	background.color = BG
+	background.color = T.BG
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
-	var scroll := ScrollContainer.new()
-	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(scroll)
 	var margin := MarginContainer.new()
-	_expand(margin)
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 28)
-	scroll.add_child(margin)
-	var page := _vbox(22)
-	_expand(page)
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side: String in ["left","right"]:
+		margin.add_theme_constant_override("margin_"+side,18)
+	for side: String in ["top","bottom"]:
+		margin.add_theme_constant_override("margin_"+side,10)
+	add_child(margin)
+	var page := _vbox(10)
 	margin.add_child(page)
-	var header := _hbox(14)
-	page.add_child(header)
-	var mark := _label("Φ", 34, ACCENT)
-	header.add_child(mark)
-	var brand := _vbox(0)
-	_expand(brand)
-	header.add_child(brand)
-	brand.add_child(_label("P H A L A N X", 22))
-	brand.add_child(_label("투자 사령부  /  HEADQUARTERS", 11, MUTED))
-	header.add_child(_label("●  가상 데이터", 13, GOLD))
-	_divider(page)
-	var intro := _hbox()
-	page.add_child(intro)
-	var heading := _vbox(6)
-	_expand(heading)
-	intro.add_child(heading)
-	heading.add_child(_label("오늘의 투자 현황", 27))
-	heading.add_child(_label("관심종목을 살펴보고, 다음 포트폴리오를 준비하세요.", 13, MUTED))
-	var demo := _vbox(6)
-	intro.add_child(demo)
-	demo.add_child(_label("DEMO ACCOUNT  01", 12, ACCENT))
-	demo.add_child(_label("실시간 시세 · 실제 계좌 미연결", 12, MUTED))
-	var stats := _hbox(16)
-	page.add_child(stats)
-	_stat(stats, "총 평가자산", Data.money(Data.total_assets()) + " 원", "현금과 보유종목 평가액 합계", TEXT)
-	_stat(stats, "보유종목 평가손익", "+" + Data.money(Data.profit()) + " 원", "평균매입가 대비  ·  예시 계좌", ACCENT)
-	_stat(stats, "가용 현금", Data.money(Data.CASH) + " 원", "현금 비중  %.2f%%" % (Data.CASH / Data.total_assets() * 100), GOLD)
-	body = _hbox(18)
-	page.add_child(body)
+	_build_header(page)
+	_build_markets(page)
+	_build_summary(page)
+	var workspace_host := Control.new()
+	workspace_host.name = "WorkspacePages"
+	_expand(workspace_host,true)
+	page.add_child(workspace_host)
+	body = _hbox(12)
+	body.name = "MarketWorkspace"
+	body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	workspace_host.add_child(body)
+	market_page = body
 	_build_watchlist()
-	center = _vbox(18)
-	_expand(center)
+	center = _vbox(10)
+	_expand(center,true)
 	body.add_child(center)
 	_build_detail()
-	_build_analysis()
+	_build_brief()
 	_build_account()
-	var footer := _wrap("PROTOTYPE 0.1    ·    모든 가격·차트·분석 점수·계좌는 UI 검증용 가상 데이터입니다. 매매계획은 수수료·세금·체결 오차를 제외한 모의 계산입니다.", 11, MUTED)
-	page.add_child(footer)
+	_build_portfolio(workspace_host)
+	_build_research(workspace_host)
+	var status := _hbox()
+	page.add_child(status)
+	status_label = _label("가상 계좌  /  리서치 가격·재무는 별도 출처 표시",11,T.MUTED)
+	_expand(status_label)
+	status.add_child(status_label)
+	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	save_label = _label("",11,T.MUTED)
+	save_label.custom_minimum_size.x = 105
+	status.add_child(save_label)
+	retry_save_button = _button("저장 재시도",flush_profile)
+	retry_save_button.add_theme_font_size_override("font_size",10)
+	status.add_child(retry_save_button)
+	status.add_child(_label("KRW   ·   실제 주문 미연결",11,T.MUTED))
 	dialog = AcceptDialog.new()
-	dialog.title = "팔랑크스 · 모의 매매계획"
-	dialog.ok_button_text = "닫기"
-	dialog.min_size = Vector2i(660, 430)
+	dialog.title = "Phalanx · 모의 매매계획"
+	dialog.ok_button_text = "확인"
+	dialog.min_size = Vector2i(620,400)
+	dialog.theme = theme
 	add_child(dialog)
+	_select_workspace("market")
 
-func _stat(parent: Node, heading: String, value: String, caption: String, color: Color) -> void:
-	var panel := _panel()
-	_expand(panel)
-	parent.add_child(panel)
-	var box := _vbox(7)
-	panel.add_child(box)
-	box.add_child(_label(heading, 12, MUTED))
-	box.add_child(_label(value, 24, color))
-	box.add_child(_label(caption, 11, MUTED))
+func _build_header(page: Node) -> void:
+	var header := _hbox(20)
+	header.custom_minimum_size.y = 44
+	page.add_child(header)
+	header.add_child(_label("Φ",29,T.GOLD))
+	var brand := _vbox(0)
+	header.add_child(brand)
+	brand.add_child(_label("P H A L A N X",18,T.TEXT))
+	brand.add_child(_label("INVESTMENT WORKSPACE",9,T.MUTED,true))
+	var tabs := _hbox(4)
+	header.add_child(tabs)
+	for item: Array in [["시장","market"],["포트폴리오","portfolio"],["리서치","research"]]:
+		var button := _button(item[0],_select_workspace.bind(item[1]))
+		button.name = "Workspace_"+item[1]
+		button.toggle_mode = true
+		button.custom_minimum_size = Vector2(80,35)
+		tabs.add_child(button)
+		workspace_buttons.append(button)
+	var spacer := Control.new()
+	_expand(spacer)
+	header.add_child(spacer)
+	var badge := _panel(8)
+	badge.add_theme_stylebox_override("panel",T.style(Color("30291d"),Color("57482f"),5,8))
+	data_badge = _label("DEMO ACCOUNT  01",11,T.GOLD,true)
+	badge.add_child(data_badge)
+	header.add_child(badge)
+
+func _build_markets(page: Node) -> void:
+	var strip := _hbox(8)
+	market_strip = strip
+	page.add_child(strip)
+	for item: Dictionary in Fixtures.MARKETS:
+		var tile := _panel(10)
+		_expand(tile)
+		strip.add_child(tile)
+		market_tiles.append(tile)
+		var row := _hbox(10)
+		tile.add_child(row)
+		var names := _vbox(1)
+		_expand(names)
+		row.add_child(names)
+		names.add_child(_label(item.name,10,T.MUTED,true))
+		names.add_child(_label(item.value,18,T.TEXT,true))
+		var trend := Spark.new()
+		trend.values = PackedFloat32Array(item.trend)
+		trend.line_color = T.ACCENT if item.up else T.RED
+		trend.custom_minimum_size = Vector2(48,30)
+		row.add_child(trend)
+		row.add_child(_label(item.change,11,trend.line_color,true))
+		tile.tooltip_text = "화면 구성용 가상 지수 · 실시간 시세가 아닙니다."
+
+func _build_summary(page: Node) -> void:
+	var strip := _hbox(12)
+	summary_strip = strip
+	strip.custom_minimum_size.y = 50
+	page.add_child(strip)
+	for item: Array in [["총 평가자산",Data.money(Data.total_assets()),T.TEXT],["평가손익","+"+Data.money(Data.profit()),T.ACCENT],["가용 현금",Data.money(Data.CASH),T.TEXT]]:
+		var group := _vbox(0)
+		_expand(group)
+		strip.add_child(group)
+		group.add_child(_label(item[0],11,T.MUTED))
+		group.add_child(_label(item[1]+"  KRW",22,item[2],true))
+	compact_plan_button = _button("비중 계획  ↗",_select_workspace.bind("portfolio"))
+	compact_plan_button.tooltip_text = "포트폴리오에서 목표 비중을 편집합니다."
+	strip.add_child(compact_plan_button)
 
 func _build_watchlist() -> void:
-	var panel := _panel()
-	panel.custom_minimum_size.x = 214
-	panel.size_flags_vertical = Control.SIZE_FILL
-	body.add_child(panel)
-	var box := _vbox(15)
-	panel.add_child(box)
-	box.add_child(_label("관심종목  /  05", 16))
-	var search := LineEdit.new()
+	watch_panel = _panel(12)
+	watch_panel.custom_minimum_size.x = 222
+	body.add_child(watch_panel)
+	var box := _vbox(10)
+	watch_panel.add_child(box)
+	var heading := _hbox(4)
+	box.add_child(heading)
+	var title := _label("관심종목",14)
+	_expand(title)
+	heading.add_child(title)
+	watch_count = _label("",11,T.GOLD,true)
+	heading.add_child(watch_count)
+	all_stocks_button = _button("전체 보기",_toggle_catalogue)
+	all_stocks_button.toggle_mode = true
+	all_stocks_button.add_theme_font_size_override("font_size",10)
+	heading.add_child(all_stocks_button)
+	search = LineEdit.new()
 	search.name = "StockSearch"
 	search.placeholder_text = "종목명 · 코드 검색"
-	search.custom_minimum_size.y = 38
+	search.tooltip_text = "Ctrl+K로 전체 종목 검색 · Enter로 첫 검색 결과 선택"
+	search.custom_minimum_size.y = 34
+	search.add_theme_font_size_override("font_size",12)
 	search.text_changed.connect(_filter_stocks)
+	search.text_submitted.connect(_submit_search)
 	box.add_child(search)
-	stock_list = _vbox(8)
-	box.add_child(stock_list)
-	for i in range(Data.STOCKS.size()):
-		var stock: Dictionary = Data.STOCKS[i]
-		var button := Button.new()
-		button.name = "Stock_" + stock.code
-		button.text = "%s\n%s    %+.2f%%" % [stock.name, Data.money(stock.price), stock.change]
-		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.custom_minimum_size = Vector2(172, 68)
+	var scroll := ScrollContainer.new()
+	_expand(scroll,true)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
+	stock_list = _vbox(5)
+	_expand(stock_list)
+	scroll.add_child(stock_list)
+	for index: int in Data.STOCKS.size():
+		var stock: Dictionary = Data.STOCKS[index]
+		var button := _button("",_select_stock.bind(index))
+		button.name = "Stock_"+stock.code
 		button.toggle_mode = true
-		button.pressed.connect(_select_stock.bind(i))
-		button.tooltip_text = stock.code + " · " + stock.sector
+		button.custom_minimum_size.y = 60
+		button.tooltip_text = "%s · %s · %s" % [stock.name,stock.code,stock.sector]
 		stock_list.add_child(button)
 		stock_buttons.append(button)
-	empty_label = _label("검색 결과가 없습니다.", 12, MUTED)
-	empty_label.visible = false
-	box.add_child(empty_label)
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	box.add_child(spacer)
-	_divider(box)
-	box.add_child(_wrap("관찰 → 분석 → 비중 검토", 12, ACCENT))
-	box.add_child(_wrap("종목을 선택하면 차트와 분석, 보유 현황이 함께 바뀝니다.", 12, MUTED))
+		var margin := MarginContainer.new()
+		margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		for side: String in ["left","right"]:
+			margin.add_theme_constant_override("margin_"+side,9)
+		margin.add_theme_constant_override("margin_top",6)
+		margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(margin)
+		var row := _hbox(4)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		margin.add_child(row)
+		var names := _vbox(4)
+		names.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_expand(names)
+		row.add_child(names)
+		var name_label := _label(stock.name,12)
+		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		names.add_child(name_label)
+		names.add_child(_label(stock.code,10,T.MUTED,true))
+		var quote := _vbox(2)
+		quote.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(quote)
+		var price := _label(Data.money(stock.price),14,T.TEXT,true)
+		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		quote.add_child(price)
+		var change := _label("%+.2f%%" % stock.change,11,T.ACCENT if stock.change >= 0 else T.RED,true)
+		change.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		quote.add_child(change)
+	empty_label = _wrap("검색 결과가 없습니다.",12,T.MUTED)
+	empty_label.hide()
+	stock_list.add_child(empty_label)
+	box.add_child(_label("샘플 시세  ·  Ctrl+K 검색",10,T.MUTED))
 
 func _build_detail() -> void:
-	var panel := _panel()
+	var panel := _panel(16)
+	_expand(panel,true)
 	center.add_child(panel)
-	var box := _vbox(12)
+	var box := _vbox(7)
 	panel.add_child(box)
 	var row := _hbox()
 	box.add_child(row)
-	var names := _vbox(4)
+	var names := _vbox(1)
 	_expand(names)
 	row.add_child(names)
-	sector_label = _label("", 11, MUTED)
+	sector_label = _label("",10,T.MUTED)
 	names.add_child(sector_label)
-	title_label = _label("", 25)
+	title_label = _label("",22)
 	names.add_child(title_label)
-	row.add_child(_label("일봉  ·  KRW", 11, MUTED))
-	var quote := _hbox(16)
+	favorite_button = _button("",_toggle_favorite)
+	favorite_button.name = "ToggleFavorite"
+	favorite_button.toggle_mode = true
+	favorite_button.add_theme_font_size_override("font_size",11)
+	row.add_child(favorite_button)
+	row.add_child(_label("일봉  /  KRW",11,T.MUTED,true))
+	var quote := _hbox(14)
 	box.add_child(quote)
-	price_label = _label("", 31)
+	price_label = _label("",30,T.TEXT,true)
 	quote.add_child(price_label)
-	change_label = _label("", 15, ACCENT)
+	change_label = _label("",13,T.ACCENT,true)
 	quote.add_child(change_label)
-	var controls := _hbox(6)
+	var controls := _hbox(5)
 	box.add_child(controls)
-	var periods := [["1개월", 22], ["3개월", 66], ["1년", 252]]
-	for period in periods:
-		var button := Button.new()
-		button.text = period[0]
+	for period: Array in [["1개월",22],["3개월",66],["1년",252]]:
+		var button := _button(period[0],_set_period.bind(period[1]))
 		button.toggle_mode = true
 		button.button_pressed = period[1] == 66
-		button.add_theme_font_size_override("font_size", 11)
-		button.pressed.connect(_set_period.bind(period[1]))
+		button.add_theme_font_size_override("font_size",11)
 		controls.add_child(button)
 		period_buttons.append(button)
 	var spacer := Control.new()
 	_expand(spacer)
 	controls.add_child(spacer)
+	for mode: Array in [["캔들","candles"],["라인","line"]]:
+		var button := _button(mode[0],_set_chart_mode.bind(mode[1]))
+		button.toggle_mode = true
+		button.button_pressed = mode[1] == "candles"
+		button.add_theme_font_size_override("font_size",11)
+		controls.add_child(button)
+		chart_mode_buttons.append(button)
+	chart = Chart.new()
+	chart.name = "PriceChart"
+	_expand(chart,true)
+	box.add_child(chart)
+	var legend := _hbox()
+	box.add_child(legend)
 	var average := CheckButton.new()
 	average.text = "20일 평균"
 	average.button_pressed = true
-	average.add_theme_font_size_override("font_size", 11)
-	average.toggled.connect(func(value: bool): chart.show_average = value; chart.queue_redraw())
-	controls.add_child(average)
-	chart = Chart.new()
-	chart.name = "PriceChart"
-	box.add_child(chart)
-	box.add_child(_label("민트 상승  ·  분홍 하락  ·  금색 20일 평균  /  하단 거래량", 10, MUTED))
+	average.add_theme_font_size_override("font_size",11)
+	average.toggled.connect(func(value: bool) -> void: chart.show_average=value; chart.queue_redraw())
+	legend.add_child(average)
+	var legend_text := _label("민트 상승 · 로즈 하락  /  하단 거래량",10,T.MUTED)
+	_expand(legend_text)
+	legend_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	legend.add_child(legend_text)
 
-func _build_analysis() -> void:
-	var panel := _panel()
-	center.add_child(panel)
-	var box := _vbox(9)
-	panel.add_child(box)
-	var header := _hbox()
-	box.add_child(header)
-	var label := _label("참모의 브리핑", 16)
-	_expand(label)
-	header.add_child(label)
-	score_label = _label("", 12, GOLD)
-	header.add_child(score_label)
-	thesis_label = _wrap("", 13)
+func _build_brief() -> void:
+	brief_panel = _panel(14)
+	center.add_child(brief_panel)
+	var box := _vbox(6)
+	brief_panel.add_child(box)
+	var row := _hbox()
+	box.add_child(row)
+	var title := _label("예시 브리핑",13)
+	_expand(title)
+	row.add_child(title)
+	score_label = _label("",11,T.GOLD)
+	row.add_child(score_label)
+	row.add_child(_button("실제 종목 분석 ↗",_select_workspace.bind("research")))
+	thesis_label = _wrap("",12)
 	box.add_child(thesis_label)
-	risk_label = _wrap("", 12, MUTED)
+	risk_label = _wrap("",11,T.MUTED)
 	box.add_child(risk_label)
-	box.add_child(_label("예시 분석 문구 · 실제 선정엔진 미연결", 10, MUTED))
 
 func _build_account() -> void:
-	account = _panel()
-	account.custom_minimum_size.x = 285
-	account.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	account = _panel(14)
+	account.name = "AllocationPlanner"
+	account.custom_minimum_size.x = 254
 	body.add_child(account)
-	var box := _vbox(14)
-	account.add_child(box)
-	box.add_child(_label("포트폴리오 편성", 17))
-	box.add_child(_label("선택한 종목의 보유 현황", 11, MUTED))
-	holding_label = _wrap("", 13)
+	var layout := _vbox(8)
+	account.add_child(layout)
+	account_scroll = ScrollContainer.new()
+	account_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_expand(account_scroll,true)
+	layout.add_child(account_scroll)
+	var box := _vbox(9)
+	_expand(box)
+	account_scroll.add_child(box)
+	_section(box,"비중 계획","SIMULATION")
+	holding_label = _wrap("",12)
 	box.add_child(holding_label)
 	_divider(box)
-	weight_label = _label("", 13)
+	weight_label = _label("",12,T.MUTED)
 	box.add_child(weight_label)
 	weight_bar = ProgressBar.new()
-	weight_bar.custom_minimum_size.y = 7
+	weight_bar.custom_minimum_size.y = 4
 	weight_bar.show_percentage = false
 	box.add_child(weight_bar)
-	var target_row := _hbox()
-	box.add_child(target_row)
-	var target_text := _label("목표 비중", 13, MUTED)
-	_expand(target_text)
-	target_row.add_child(target_text)
+	var row := _hbox()
+	box.add_child(row)
+	var target := _label("목표 비중",13)
+	_expand(target)
+	row.add_child(target)
 	target_input = SpinBox.new()
 	target_input.name = "TargetWeight"
 	target_input.min_value = 0
 	target_input.max_value = 100
 	target_input.step = 0.5
 	target_input.suffix = "%"
-	target_input.custom_minimum_size.x = 100
+	target_input.custom_minimum_size.x = 94
 	target_input.value_changed.connect(_target_changed)
-	target_row.add_child(target_input)
-	plan_label = _wrap("", 13, ACCENT)
+	row.add_child(target_input)
+	plan_label = _wrap("",13,T.ACCENT)
 	box.add_child(plan_label)
 	_divider(box)
-	box.add_child(_label("전체 목표 배분", 13))
-	total_label = _wrap("", 12, MUTED)
+	_section(box,"전체 목표 배분")
+	total_label = _wrap("",12,T.MUTED)
 	box.add_child(total_label)
-	preview_button = Button.new()
+	preview_button = _button("모의 계획 검토  →",_show_plan)
 	preview_button.name = "PreviewPlan"
-	preview_button.text = "모의 매매계획 보기  →"
-	preview_button.custom_minimum_size.y = 48
-	preview_button.add_theme_stylebox_override("normal", _style(Color("1d4540"), Color("376e61"), 7, 12))
-	preview_button.pressed.connect(_show_plan)
-	box.add_child(preview_button)
-	var reset := Button.new()
-	reset.text = "목표 비중 초기화"
-	reset.add_theme_font_size_override("font_size", 11)
-	reset.pressed.connect(_reset_targets)
-	box.add_child(reset)
-	box.add_child(_wrap("1주 단위로 계산합니다.\n목표 비중은 이번 실행 동안 유지됩니다.", 11, MUTED))
+	preview_button.custom_minimum_size.y = 40
+	preview_button.add_theme_stylebox_override("normal",T.style(Color("1c443b"),Color("398574"),5,10))
+	layout.add_child(preview_button)
+	var reset := _button("목표 비중 초기화",_reset_targets)
+	reset.add_theme_font_size_override("font_size",11)
+	layout.add_child(reset)
+	layout.add_child(_wrap("1주 단위 모의 계산 · 수수료·세금 제외",10,T.MUTED))
+
+func _scroll_page(host: Node, node_name: String) -> ScrollContainer:
+	var scroll := ScrollContainer.new()
+	scroll.name = node_name
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	host.add_child(scroll)
+	return scroll
+
+func _build_portfolio(host: Node) -> void:
+	portfolio_page = _scroll_page(host,"PortfolioWorkspace")
+	portfolio_split = BoxContainer.new()
+	portfolio_split.add_theme_constant_override("separation",12)
+	_expand(portfolio_split)
+	portfolio_page.add_child(portfolio_split)
+	var panel := _panel(18)
+	_expand(panel)
+	portfolio_split.add_child(panel)
+	var box := _vbox(16)
+	panel.add_child(box)
+	_section(box,"포트폴리오","DEMO ACCOUNT  01")
+	box.add_child(_wrap("보유 비중과 목표 비중을 한눈에 검토하세요.",12,T.MUTED))
+	var head := _hbox(8)
+	box.add_child(head)
+	for cell: Array in [["종목",2.1],["평가액",1.5],["평가손익",1.3],["현재",0.8],["목표",0.8]]:
+		var heading := _table_cell(head,cell[0],cell[1],T.MUTED,11)
+		if cell[0] == "종목":
+			heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_divider(box)
+	for index: int in Data.STOCKS.size():
+		var stock: Dictionary = Data.STOCKS[index]
+		var row := _hbox(8)
+		row.custom_minimum_size.y = 46
+		box.add_child(row)
+		var button := _button(stock.name,_select_stock.bind(index))
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.size_flags_stretch_ratio = 2.1
+		_expand(button)
+		button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		row.add_child(button)
+		var pnl: float = (stock.price-stock.average)*stock.quantity
+		_table_cell(row,Data.money(stock.price*stock.quantity),1.5,T.TEXT)
+		_table_cell(row,("+" if pnl>=0 else "")+Data.money(pnl),1.3,T.ACCENT if pnl>=0 else T.RED)
+		_table_cell(row,"%.1f%%" % (stock.price*stock.quantity/Data.total_assets()*100),0.8,T.MUTED)
+		var target := _table_cell(row,"",0.8,T.GOLD)
+		portfolio_rows.append({"button":button,"target":target})
+	_divider(box)
+	var cash := _hbox()
+	box.add_child(cash)
+	var cash_title := _label("현금",13,T.MUTED)
+	_expand(cash_title)
+	cash.add_child(cash_title)
+	cash.add_child(_label(Data.money(Data.CASH)+" KRW   /   %.2f%%" % (Data.CASH/Data.total_assets()*100),14,T.GOLD,true))
+	box.add_child(_wrap("종목을 누르면 비중 계획에 반영됩니다. 변경한 목표는 모의 계획에서 함께 검토할 수 있습니다.",12,T.MUTED))
+
+func _table_cell(parent: Node, text: String, ratio: float, color: Color, font_size := 13) -> Label:
+	var label := _label(text,font_size,color,true)
+	_expand(label)
+	label.size_flags_stretch_ratio = ratio
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	parent.add_child(label)
+	return label
+
+func _build_research(host: Node) -> void:
+	research_page = _scroll_page(host,"ResearchWorkspace")
+	var box := _vbox(12)
+	_expand(box)
+	research_page.add_child(box)
+	var stocks := _hbox(6)
+	box.add_child(stocks)
+	for index: int in Data.STOCKS.size():
+		var button := _button(Data.STOCKS[index].name,_select_stock.bind(index))
+		button.toggle_mode = true
+		_expand(button)
+		stocks.add_child(button)
+		research_buttons.append(button)
+	research_view = ResearchDetail.new()
+	box.add_child(research_view)
+	research_title = research_view.title_label
+	note_editor = research_view.note_editor
+	note_status = research_view.note_status
+	note_editor.text_changed.connect(_note_changed)
+
+func _select_workspace(value: String) -> void:
+	if not value in ["market","portfolio","research"]:
+		return
+	flush_profile()
+	workspace = value
+	market_strip.visible = value!="research"
+	summary_strip.visible = value!="research"
+	data_badge.text = "KIS · OFFICIAL IR" if value=="research" else "DEMO ACCOUNT  01"
+	market_page.visible = value == "market"
+	portfolio_page.visible = value == "portfolio"
+	research_page.visible = value == "research"
+	for index: int in workspace_buttons.size():
+		workspace_buttons[index].set_pressed_no_signal(["market","portfolio","research"][index] == value)
+	compact_plan_button.visible = compact and workspace == "market"
+	_place_account()
+	if value == "research":
+		research_view.activate()
+
+func _place_account() -> void:
+	if account == null or portfolio_split == null:
+		return
+	var desired_parent: Node = portfolio_split if workspace != "market" or compact else body
+	if account.get_parent() != desired_parent:
+		account.reparent(desired_parent)
+	account.visible = workspace == "portfolio" or (workspace == "market" and not compact)
+	account.custom_minimum_size.x = 0 if compact else 254
+	account.custom_minimum_size.y = 450 if workspace == "portfolio" else 0
+	account.size_flags_horizontal = Control.SIZE_EXPAND_FILL if compact else Control.SIZE_FILL
+	account.size_flags_vertical = Control.SIZE_FILL
 
 func _select_stock(index: int) -> void:
+	if index < 0 or index >= Data.STOCKS.size():
+		return
+	flush_profile()
 	selected = index
 	var stock: Dictionary = Data.STOCKS[index]
-	for i in range(stock_buttons.size()):
+	for i: int in stock_buttons.size():
 		stock_buttons[i].set_pressed_no_signal(i == index)
+		research_buttons[i].set_pressed_no_signal(i == index)
+		portfolio_rows[i].button.add_theme_stylebox_override("normal",T.style(Color("16352f") if i==index else T.INSET,T.BORDER,5,8))
 	title_label.text = stock.name
-	sector_label.text = stock.code + "  /  " + stock.sector
-	price_label.text = Data.money(stock.price) + " 원"
+	sector_label.text = stock.code+"   /   "+stock.sector
+	price_label.text = Data.money(stock.price)
 	change_label.text = "%+.2f%%  전일 대비" % stock.change
-	change_label.add_theme_color_override("font_color", ACCENT if stock.change >= 0 else RED)
+	change_label.add_theme_color_override("font_color",T.ACCENT if stock.change>=0 else T.RED)
 	chart.set_stock(index)
-	thesis_label.text = "관찰 포인트   " + stock.thesis
-	risk_label.text = "위험 점검   " + stock.risk
+	thesis_label.text = stock.thesis
+	risk_label.text = "위험 · "+stock.risk
 	score_label.text = "예시 점수  %d / 100" % stock.score
-	var pnl: float = (stock.price - stock.average) * stock.quantity
-	holding_label.text = "%s  ·  %d주\n평균매입가  %s 원\n평가액  %s 원\n평가손익  %s%s 원" % [stock.name, stock.quantity, Data.money(stock.average), Data.money(stock.price * stock.quantity), "+" if pnl >= 0 else "", Data.money(pnl)]
-	var weight: float = stock.price * stock.quantity / Data.total_assets() * 100
-	weight_label.text = "현재 비중    %.2f%%" % weight
+	research_view.select_stock(index)
+	var pnl: float = (stock.price-stock.average)*stock.quantity
+	holding_label.text = "%s  ·  %d주\n\n평균매입가   %s 원\n평가액       %s 원\n평가손익     %s%s 원" % [stock.name,stock.quantity,Data.money(stock.average),Data.money(stock.price*stock.quantity),"+" if pnl>=0 else "",Data.money(pnl)]
+	var weight: float = stock.price*stock.quantity/Data.total_assets()*100
+	weight_label.text = "현재 비중   %.2f%%" % weight
 	weight_bar.value = weight
 	updating = true
 	target_input.value = targets[index]
+	note_editor.text = notes_by_code.get(stock.code,"")
 	updating = false
+	_refresh_favorite()
+	_refresh_save_status()
 	_update_plan()
 
 func _filter_stocks(query: String) -> void:
-	var visible_count := 0
-	for i in range(stock_buttons.size()):
-		var stock: Dictionary = Data.STOCKS[i]
-		stock_buttons[i].visible = query.strip_edges().is_empty() or (stock.name + stock.code).to_lower().contains(query.strip_edges().to_lower())
-		if stock_buttons[i].visible:
-			visible_count += 1
-	empty_label.visible = visible_count == 0
+	var count := 0
+	for index: int in stock_buttons.size():
+		var stock: Dictionary = Data.STOCKS[index]
+		var query_text := query.strip_edges().to_lower()
+		stock_buttons[index].visible = (not watch_only or stock.code in watchlist_codes) if query_text.is_empty() else (stock.name+stock.code).to_lower().contains(query_text)
+		if stock_buttons[index].visible:
+			count += 1
+	empty_label.visible = count == 0
+	empty_label.text = "관심종목이 없습니다.\n전체 보기에서 종목을 추가하세요." if query.strip_edges().is_empty() and watch_only else "검색 결과가 없습니다."
+	var known_count := 0
+	for stock: Dictionary in Data.STOCKS:
+		if stock.code in watchlist_codes:
+			known_count += 1
+	watch_count.text = str(known_count)
+
+func _submit_search(_text: String) -> void:
+	for index: int in stock_buttons.size():
+		if stock_buttons[index].visible:
+			_select_stock(index)
+			stock_buttons[index].grab_focus()
+			return
 
 func _set_period(days: int) -> void:
 	chart.set_period(days)
-	var options := [22, 66, 252]
-	for i in range(period_buttons.size()):
-		period_buttons[i].set_pressed_no_signal(options[i] == days)
+	for index: int in period_buttons.size():
+		period_buttons[index].set_pressed_no_signal([22,66,252][index] == days)
+
+func _set_chart_mode(value: String) -> void:
+	chart.display_mode = value
+	chart.queue_redraw()
+	for index: int in chart_mode_buttons.size():
+		chart_mode_buttons[index].set_pressed_no_signal(["candles","line"][index] == value)
 
 func _target_changed(value: float) -> void:
 	if updating:
@@ -399,45 +674,121 @@ func _target_changed(value: float) -> void:
 	_update_plan()
 
 func _update_plan() -> void:
+	for index: int in portfolio_rows.size():
+		portfolio_rows[index].target.text = "%.1f%%" % targets[index]
 	var result := Data.plan(targets)
 	preview_button.disabled = not result.valid
 	if not result.valid:
 		plan_label.text = "목표 비중을 조정해 주세요."
-		total_label.text = result.get("reason", "가용 현금이 부족합니다.")
-		total_label.add_theme_color_override("font_color", RED)
+		total_label.text = result.get("reason","가용 현금이 부족합니다.")
+		total_label.add_theme_color_override("font_color",T.RED)
 		return
 	var row: Dictionary = result.rows[selected]
-	var action := "매수" if row.delta > 0 else "매도"
-	plan_label.text = "변경할 수량이 없습니다." if row.delta == 0 else "%s %d주 예상\n약 %s 원" % [action, absi(row.delta), Data.money(row.amount)]
-	total_label.text = "주식 %.1f%%  /  목표 현금 %.1f%%\n계획 후 현금  %s 원" % [result.target_total, 100.0 - result.target_total, Data.money(result.cash)]
-	total_label.add_theme_color_override("font_color", MUTED)
+	var action := "매수" if row.delta>0 else "매도"
+	plan_label.text = "변경할 수량이 없습니다." if row.delta==0 else "%s %d주 예상\n약 %s 원" % [action,absi(row.delta),Data.money(row.amount)]
+	total_label.text = "주식 %.1f%%  ·  목표 현금 %.1f%%\n계획 후 현금  %s 원" % [result.target_total,100.0-result.target_total,Data.money(result.cash)]
+	total_label.add_theme_color_override("font_color",T.MUTED)
 
 func _reset_targets() -> void:
-	for i in range(targets.size()):
-		targets[i] = Data.STOCKS[i].target
+	for index: int in targets.size():
+		targets[index] = Data.STOCKS[index].target
 	_select_stock(selected)
 
 func _show_plan() -> void:
 	var result := Data.plan(targets)
 	if not result.valid:
 		return
-	var lines := PackedStringArray(["가상 계좌의 목표 비중을 바탕으로 계산한 모의 계획입니다.", ""])
-	for row in result.rows:
-		var action := "매수" if row.delta > 0 else "매도"
-		lines.append("%s   |   %s %d주   |   %s 원   |   목표 %.1f%%" % [row.name, action if row.delta != 0 else "유지", absi(row.delta), Data.money(row.amount), row.target])
+	var lines := PackedStringArray(["가상 계좌의 목표 비중을 바탕으로 계산한 모의 계획입니다.",""])
+	for row: Dictionary in result.rows:
+		var action := "매수" if row.delta>0 else "매도"
+		lines.append("%s   |   %s %d주   |   %s 원   |   목표 %.1f%%" % [row.name,action if row.delta!=0 else "유지",absi(row.delta),Data.money(row.amount),row.target])
 	lines.append("")
 	lines.append("계획 후 예상 현금   %s 원" % Data.money(result.cash))
-	lines.append("매도 금액을 반영한 계산 · 수수료, 세금, 체결 오차 제외")
-	lines.append("실제 주문 기능은 연결되어 있지 않습니다.")
+	lines.append("수수료·세금·체결 오차 제외  /  실제 주문 미연결")
 	dialog.dialog_text = "\n".join(lines)
-	dialog.popup_centered(Vector2i(740, 430))
+	dialog.popup_centered(Vector2i(mini(740,int(get_viewport_rect().size.x)-48),420))
+
+func _note_changed() -> void:
+	if updating:
+		return
+	var code: String = Data.STOCKS[selected].code
+	if note_editor.text.is_empty():
+		notes_by_code.erase(code)
+	else:
+		notes_by_code[code] = note_editor.text
+	_queue_profile_save()
 
 func _responsive() -> void:
-	if not is_instance_valid(account):
+	if account == null:
 		return
-	var should_compact := get_viewport_rect().size.x < 1180
-	if should_compact == compact:
+	compact = size.x < 1120
+	watch_panel.custom_minimum_size.x = 202 if compact else 222
+	portfolio_split.vertical = compact
+	brief_panel.visible = size.y >= 780
+	compact_plan_button.visible = compact and workspace == "market"
+	# The market strip stays useful on smaller desktops without forcing overflow.
+	market_tiles[3].visible = size.x >= 1060
+	_place_account()
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not is_visible_in_tree() or dialog.visible:
 		return
-	compact = should_compact
-	account.reparent(center if compact else body)
-	account.size_flags_horizontal = Control.SIZE_EXPAND_FILL if compact else Control.SIZE_FILL
+	if event is InputEventKey and event.pressed and not event.echo and event.ctrl_pressed and event.keycode == KEY_K:
+		_select_workspace("market")
+		search.grab_focus()
+		search.select_all()
+		get_viewport().set_input_as_handled()
+
+func _toggle_catalogue() -> void:
+	watch_only = not watch_only
+	all_stocks_button.set_pressed_no_signal(not watch_only)
+	all_stocks_button.text = "관심만" if not watch_only else "전체 보기"
+	_filter_stocks(search.text)
+
+func _toggle_favorite() -> void:
+	var code: String = Data.STOCKS[selected].code
+	if code in watchlist_codes:
+		watchlist_codes.erase(code)
+	else:
+		watchlist_codes.append(code)
+	_refresh_favorite()
+	_filter_stocks(search.text)
+	_queue_profile_save()
+	flush_profile()
+
+func _refresh_favorite() -> void:
+	var included: bool = Data.STOCKS[selected].code in watchlist_codes
+	favorite_button.set_pressed_no_signal(included)
+	favorite_button.text = "★ 관심" if included else "☆ 추가"
+	favorite_button.tooltip_text = "관심종목에서 해제" if included else "관심종목에 추가"
+
+func _queue_profile_save() -> void:
+	profile_dirty = true
+	save_failed = false
+	save_timer.start()
+	_refresh_save_status()
+
+func flush_profile() -> void:
+	if profile == null or not profile_dirty:
+		return
+	save_timer.stop()
+	if profile.save_profile(watchlist_codes,notes_by_code):
+		profile_dirty = false
+		save_failed = false
+	else:
+		save_failed = true
+	_refresh_save_status()
+
+func _refresh_save_status() -> void:
+	if save_label == null or note_status == null:
+		return
+	var problem: bool = save_failed or profile.blocked
+	save_label.text = "저장 확인 필요" if problem else ("저장 대기 중…" if profile_dirty else ("이전 저장본 복원" if not profile.message.is_empty() else "이 기기에 저장"))
+	save_label.add_theme_color_override("font_color",T.RED if problem else T.MUTED)
+	save_label.tooltip_text = profile.message+"\n"+profile.path
+	retry_save_button.visible = save_failed and not profile.blocked
+	note_status.text = profile.message if not profile.message.is_empty() else ("입력 후 자동 저장합니다…" if profile_dirty else "이 기기에 자동 저장됩니다. 앱을 다시 열어도 유지됩니다.")
+	note_status.add_theme_color_override("font_color",T.RED if problem else T.MUTED)
+
+func _exit_tree() -> void:
+	flush_profile()

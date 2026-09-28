@@ -4,12 +4,15 @@ extends CharacterBody3D
 signal exploration_changed(value: bool)
 
 const WALK_SPEED := 2.6
-const EYE_HEIGHT := 1.65
+const EYE_HEIGHT := 1.76
 const BODY_HEIGHT := 1.75
 const BODY_RADIUS := 0.26
 const MOUSE_SENSITIVITY := 0.0022
 const PITCH_LIMIT := deg_to_rad(78.0)
 const GRAVITY := 20.0
+
+@export_range(-60.0, 60.0) var initial_pitch_degrees := -12.0
+@export_range(45.0, 90.0) var field_of_view := 64.0
 
 var camera: Camera3D
 var head: Node3D
@@ -36,11 +39,11 @@ func _ready() -> void:
 	head = Node3D.new()
 	head.name = "Head"
 	head.position.y = EYE_HEIGHT
-	head.rotation.x = deg_to_rad(-15.0)
+	head.rotation.x = deg_to_rad(initial_pitch_degrees)
 	add_child(head)
 	camera = Camera3D.new()
 	camera.name = "PlayerCamera"
-	camera.fov = 70.0
+	camera.fov = field_of_view
 	camera.near = 0.05
 	camera.far = 210.0
 	head.add_child(camera)

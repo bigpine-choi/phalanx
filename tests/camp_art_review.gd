@@ -1,4 +1,6 @@
 extends SceneTree
+## HISTORICAL: preserved first-person art review; do not use for current-design acceptance.
+## Current scene-flow review/captures: res://tests/quarter_flow_test.gd.
 ## Optional windowed GPU review. Fixed poses at both sizes; no production input hooks.
 ## Frame intervals are main-loop wall times, not isolated GPU timings or hardware input latency.
 ## Outputs belong outside the repository (for example a directory under Windows TEMP).

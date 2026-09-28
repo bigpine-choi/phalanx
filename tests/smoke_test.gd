@@ -4,6 +4,11 @@ const Data = preload("res://scripts/demo_data.gd")
 var failures := 0
 
 func _initialize() -> void:
+	if not OS.get_cmdline_user_args().has("live"):
+		OS.set_environment("PHALANX_RESEARCH_OFFLINE","1")
+	OS.set_environment("PHALANX_RESEARCH_CACHE",OS.get_environment("TEMP").path_join("phalanx-research-test-%s" % OS.get_process_id()))
+	if OS.get_environment("PHALANX_WORKSPACE_PATH").is_empty():
+		OS.set_environment("PHALANX_WORKSPACE_PATH",OS.get_environment("TEMP").path_join("phalanx-smoke_test-%s-%s.json" % [OS.get_process_id(),Time.get_ticks_usec()]))
 	call_deferred("_run")
 
 func check(condition: bool, message: String) -> void:
@@ -60,7 +65,7 @@ func _run() -> void:
 		await process_frame
 		await process_frame
 		check(main.get_combined_minimum_size().x <= window_size.x, "Root must fit viewport")
-		check(main.account.get_parent() == (main.center if window_size.x < 1180 else main.body), "Responsive account placement")
+		check(main.account.is_visible_in_tree() or main.compact_plan_button.is_visible_in_tree(), "Allocation editing must remain reachable in compact and wide workspaces")
 		check(main.body.get_global_rect().end.x <= window_size.x + 1, "Body must not overflow horizontally")
 	print("PHALANX_SMOKE_TEST: %s" % ("PASS" if failures == 0 else "FAIL (%d)" % failures))
 	quit(0 if failures == 0 else 1)
