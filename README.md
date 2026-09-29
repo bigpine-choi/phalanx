@@ -145,6 +145,7 @@ $review = Join-Path $env:TEMP 'phalanx-quarter-review'
 
 ## 문서와 이전 기록
 
+- [상용 HTS 기능 격차 분석과 다음 개발 제안 · 2026-09-29](docs/HTS_FEATURE_GAP_ANALYSIS_20260929.md)
 - [현재 제작 지침](Phalanx_Command_Camp_Art_Brief_20260928.md)
 - [현재 세션 인수인계](docs/SESSION_HANDOFF.md)
 - [이전 1인칭 문서 원본 보관](docs/archive/README.md)
