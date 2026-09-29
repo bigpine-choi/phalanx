@@ -3,6 +3,8 @@
 /android/
 
 # Local temporary files, logs, and crash dumps.
+__pycache__/
+*.py[cod]
 *.tmp
 *.temp
 *.bak

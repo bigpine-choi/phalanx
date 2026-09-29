@@ -1,8 +1,11 @@
 extends Control
 const Data = preload("res://scripts/demo_data.gd")
 const T = preload("res://scripts/terminal_theme.gd")
-const UP := T.ACCENT
-const DOWN := T.RED
+const UP := Color("365e46")
+const DOWN := Color("9b4834")
+const INK := Color("65533c")
+const PAPER := Color("dac79f")
+const AVERAGE := Color("8a6527")
 var candles: Array = []
 var days := 66
 var show_average := true
@@ -10,6 +13,7 @@ var display_mode := "candles"
 var hover_index := -1
 var full_history: Array = []
 var chart_font: Font = T.font(true)
+var label_font: Font = T.font()
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(260,190)
@@ -32,7 +36,7 @@ func set_period(value: int) -> void:
 	queue_redraw()
 
 func plot_rect() -> Rect2:
-	return Rect2(4,29,maxf(1,size.x-78),maxf(1,size.y-101))
+	return Rect2(14,36,maxf(1,size.x-96),maxf(1,size.y-112))
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and not candles.is_empty():
@@ -41,7 +45,21 @@ func _gui_input(event: InputEvent) -> void:
 		queue_redraw()
 
 func _draw() -> void:
+	draw_rect(Rect2(Vector2.ZERO,size), PAPER)
+	draw_rect(Rect2(Vector2(4,4),size-Vector2(8,8)), Color("ac936b"), false, 1)
+	for y: int in range(7,int(size.y)-6,4):
+		draw_line(Vector2(6,y),Vector2(size.x-6,y+sin(y)*0.4),Color(0.30,0.20,0.10,0.025),1)
+	for x: float in [8.0,size.x-8.0]:
+		for y: float in [8.0,size.y-8.0]:
+			draw_circle(Vector2(x,y),1.3,Color("967344"))
 	if candles.is_empty():
+		var center := size * 0.5
+		draw_arc(center-Vector2(0,16),22,0,TAU,48,Color(INK,0.35),1,true)
+		draw_line(center+Vector2(-29,-16),center+Vector2(29,-16),Color(INK,0.35),1)
+		draw_line(center+Vector2(0,-45),center+Vector2(0,13),Color(INK,0.35),1)
+		var message := "일봉 자료 대기 중"
+		var width := label_font.get_string_size(message,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
+		draw_string(label_font,center+Vector2(-width*0.5,44),message,HORIZONTAL_ALIGNMENT_LEFT,-1,13,INK)
 		return
 	var font := chart_font
 	var plot := plot_rect()
@@ -68,8 +86,8 @@ func _draw() -> void:
 	var price_y := func(value: float) -> float: return plot.end.y-(value-low)/(high-low)*plot.size.y
 	for index: int in 5:
 		var y := plot.position.y+plot.size.y*float(index)/4.0
-		draw_line(Vector2(plot.position.x,y),Vector2(plot.end.x,y),Color("25323f"),1)
-		draw_string(font,Vector2(plot.end.x+10,y+4),Data.money(high-(high-low)*float(index)/4),HORIZONTAL_ALIGNMENT_LEFT,-1,11,T.MUTED)
+		draw_line(Vector2(plot.position.x,y),Vector2(plot.end.x,y),Color("bba77f"),1)
+		draw_string(font,Vector2(plot.end.x+10,y+4),Data.money(high-(high-low)*float(index)/4),HORIZONTAL_ALIGNMENT_LEFT,-1,11,INK)
 	var volume_max := 1.0
 	for candle: Dictionary in candles:
 		volume_max = maxf(volume_max,float(candle.volume))
@@ -96,21 +114,21 @@ func _draw() -> void:
 		draw_colored_polygon(fill,Color(UP,0.07))
 		draw_polyline(close_points,UP,2,true)
 	if show_average and average_points.size()>1:
-		draw_polyline(average_points,T.GOLD,1.4,true)
+		draw_polyline(average_points,AVERAGE,1.7,true)
 	var last_y: float = price_y.call(candles[-1].close)
 	draw_dashed_line(Vector2(plot.position.x,last_y),Vector2(plot.end.x,last_y),Color(UP,0.3),1,4)
-	draw_rect(Rect2(plot.end.x+5,last_y-8,68,17),Color("1b4038"))
-	draw_string(font,Vector2(plot.end.x+10,last_y+4),Data.money(candles[-1].close),HORIZONTAL_ALIGNMENT_LEFT,-1,11,UP)
-	draw_string(font,Vector2(4,size.y-3),str(candles[0].get("date","-%dD" % (candles.size()-1))),HORIZONTAL_ALIGNMENT_LEFT,-1,10,T.MUTED)
-	draw_string(font,Vector2(plot.end.x-65,size.y-3),str(candles[-1].get("date","T0")),HORIZONTAL_ALIGNMENT_LEFT,-1,10,T.MUTED)
+	draw_rect(Rect2(plot.end.x+5,last_y-8,68,17),UP)
+	draw_string(font,Vector2(plot.end.x+10,last_y+4),Data.money(candles[-1].close),HORIZONTAL_ALIGNMENT_LEFT,-1,11,PAPER)
+	draw_string(font,Vector2(14,size.y-9),str(candles[0].get("date","-%dD" % (candles.size()-1))),HORIZONTAL_ALIGNMENT_LEFT,-1,10,INK)
+	draw_string(font,Vector2(plot.end.x-65,size.y-9),str(candles[-1].get("date","T0")),HORIZONTAL_ALIGNMENT_LEFT,-1,10,INK)
 	var current: Dictionary = candles[hover_index if hover_index>=0 else -1]
 	var caption := "O %s   H %s   L %s   C %s" % [Data.money(current.open),Data.money(current.high),Data.money(current.low),Data.money(current.close)]
-	draw_string(font,Vector2(4,14),caption,HORIZONTAL_ALIGNMENT_LEFT,plot.size.x,10,T.MUTED)
+	draw_string(font,Vector2(14,22),caption,HORIZONTAL_ALIGNMENT_LEFT,plot.size.x,10,INK)
 	if hover_index>=0:
 		if current.has("date"):
-			draw_string(font,Vector2(4,plot.end.y+15),current.date+"  V "+Data.money(current.volume),HORIZONTAL_ALIGNMENT_LEFT,plot.size.x,10,T.MUTED)
+			draw_string(font,Vector2(14,plot.end.y+15),current.date+"  V "+Data.money(current.volume),HORIZONTAL_ALIGNMENT_LEFT,plot.size.x,10,INK)
 		var x := plot.position.x+(hover_index+0.5)*step
 		var y: float = price_y.call(current.close)
-		draw_dashed_line(Vector2(x,plot.position.y),Vector2(x,size.y-17),Color("94a8ba"),1,4)
-		draw_dashed_line(Vector2(plot.position.x,y),Vector2(plot.end.x,y),Color("94a8ba"),1,4)
-		draw_circle(Vector2(x,y),3,Color("e8edf3"))
+		draw_dashed_line(Vector2(x,plot.position.y),Vector2(x,size.y-17),INK,1,4)
+		draw_dashed_line(Vector2(plot.position.x,y),Vector2(plot.end.x,y),INK,1,4)
+		draw_circle(Vector2(x,y),3,UP)

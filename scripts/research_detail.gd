@@ -1,11 +1,17 @@
 extends VBoxContainer
+signal context_changed
 ## Research workspace content, separate from the synthetic account controls.
 const T = preload("res://scripts/terminal_theme.gd")
+const CommandPanel = preload("res://scripts/command_panel.gd")
 const Data = preload("res://scripts/demo_data.gd")
 const Model = preload("res://scripts/research_model.gd")
 const Gateway = preload("res://scripts/research_gateway.gd")
 const Chart = preload("res://scripts/price_chart.gd")
 const Trend = preload("res://scripts/financial_trend.gd")
+const Advisor = preload("res://scripts/advisor_panel.gd")
+var advisor: PanelContainer
+var right_column: VBoxContainer
+var finance_panel: PanelContainer
 var gateway: Node
 var title_label: Label
 var price_label: Label
@@ -36,6 +42,7 @@ func _ready() -> void:
 	gateway = Gateway.new()
 	add_child(gateway)
 	gateway.changed.connect(_render)
+	gateway.changed.connect(func() -> void: context_changed.emit())
 	_build()
 	resized.connect(_responsive)
 	_responsive.call_deferred()
@@ -58,8 +65,8 @@ func _box(gap := 8) -> VBoxContainer:
 	return result
 
 func _panel() -> PanelContainer:
-	var result := PanelContainer.new()
-	result.add_theme_stylebox_override("panel",T.style(T.PANEL,T.BORDER,7,14))
+	var result := CommandPanel.new()
+	result.add_theme_stylebox_override("panel",T.panel_style(14))
 	result.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return result
 
@@ -95,7 +102,7 @@ func _build() -> void:
 	main_columns.add_theme_constant_override("separation",12)
 	add_child(main_columns)
 	var left := _box(12)
-	left.size_flags_stretch_ratio = 2.4
+	left.size_flags_stretch_ratio = 1.7
 	main_columns.add_child(left)
 	var price_panel := _panel()
 	left.add_child(price_panel)
@@ -124,8 +131,8 @@ func _build() -> void:
 	price_box.add_child(chart)
 	# PriceChart sets a general minimum in _ready; research uses a taller plot.
 	chart.custom_minimum_size.y = 230
-	price_box.add_child(_label("금색 20거래일 평균  ·  하단 거래량  ·  전일까지의 일봉 · 배당 포함 수익률 아님",10,T.MUTED,true))
-	var finance_panel := _panel()
+	price_box.add_child(_label("황토색 20거래일 평균  ·  하단 거래량  ·  전일까지의 일봉 · 배당 포함 수익률 아님",10,T.MUTED,true))
+	finance_panel = _panel()
 	left.add_child(finance_panel)
 	var finance := _box(9)
 	finance_panel.add_child(finance)
@@ -144,7 +151,7 @@ func _build() -> void:
 		metrics.append(value)
 	trend = Trend.new()
 	finance.add_child(trend)
-	finance.add_child(_label("회색 매출액  ·  민트 영업이익  ·  금색 영업현금흐름  /  같은 금액 척도",10,T.MUTED,true))
+	finance.add_child(_label("회색 매출액  ·  연녹색 영업이익  ·  금색 영업현금흐름  /  같은 금액 척도",10,T.MUTED,true))
 	values_table = GridContainer.new()
 	values_table.columns = 4
 	values_table.add_theme_constant_override("h_separation",12)
@@ -152,10 +159,14 @@ func _build() -> void:
 	finance.add_child(values_table)
 	source_links = _box(3)
 	finance.add_child(source_links)
+	right_column = _box(12)
+	right_column.size_flags_stretch_ratio = 1.0
+	main_columns.add_child(right_column)
+	advisor = Advisor.new()
+	right_column.add_child(advisor)
+	advisor.evidence_requested.connect(_show_evidence)
 	notes_panel = _panel()
-	notes_panel.custom_minimum_size.x = 276
-	notes_panel.size_flags_stretch_ratio = 1.0
-	main_columns.add_child(notes_panel)
+	right_column.add_child(notes_panel)
 	var notes := _box(10)
 	notes_panel.add_child(notes)
 	notes.add_child(_label("나의 리서치 노트",15))
@@ -283,5 +294,15 @@ func _open_price_source() -> void:
 func _responsive() -> void:
 	if main_columns==null:
 		return
-	main_columns.vertical = size.x<1000
-	notes_panel.custom_minimum_size.x = 0 if main_columns.vertical else 276
+	main_columns.vertical = size.x<940
+	right_column.custom_minimum_size.x = 0 if main_columns.vertical else 360
+
+func _show_evidence(kind: String) -> void:
+	var target: Control = chart if kind=="quote" else (finance_panel if kind=="financial" else note_editor)
+	var ancestor := get_parent()
+	while ancestor != null and not ancestor is ScrollContainer:
+		ancestor = ancestor.get_parent()
+	if ancestor is ScrollContainer:
+		ancestor.ensure_control_visible(target)
+	if kind=="note":
+		note_editor.grab_focus()

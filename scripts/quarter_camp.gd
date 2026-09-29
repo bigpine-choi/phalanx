@@ -9,6 +9,7 @@ const AvatarScript = preload("res://scripts/camp_avatar.gd")
 const AtmosphereScript = preload("res://scripts/scene_atmosphere.gd")
 const ForegroundScript = preload("res://scripts/camp_foreground.gd")
 const LightFieldScript = preload("res://scripts/camp_light_field.gd")
+const SupplyChestScript = preload("res://scripts/camp_supply_chest.gd")
 const BACKGROUND_PATH := "res://assets/art/quarter_camp.png"
 const CANVAS_SIZE := Vector2(1600, 900)
 const SOURCE_SIZE := Vector2(1672, 941)
@@ -19,6 +20,7 @@ var avatar: Node2D
 var navigation: RefCounted
 var light_field := LightFieldScript.new()
 var atmosphere: Node2D
+var supply_chest: Node2D
 var active := true
 var entrance_position := Vector2(683, 386) * ART_SCALE + ART_OFFSET
 var spawn_position := Vector2(984, 714) * ART_SCALE + ART_OFFSET
@@ -61,6 +63,15 @@ func _ready() -> void:
 	name = "QuarterCamp"
 	if ResourceLoader.exists(BACKGROUND_PATH):
 		background_texture = load(BACKGROUND_PATH) as Texture2D
+	# A ground prop beside the right supply stacks, clear of the central route.
+	supply_chest = SupplyChestScript.new()
+	supply_chest.name = "CampSupplyChest"
+	supply_chest.position = Vector2(1150, 493) * ART_SCALE + ART_OFFSET
+	supply_chest.sunlight = light_field.sunlight_at(supply_chest.position)
+	supply_chest.z_index = int(supply_chest.position.y)
+	add_child(supply_chest)
+	blocked_polygons.append(supply_chest.ground_polygon)
+	click_blocking_polygons.append(supply_chest.silhouette_polygon)
 	navigation = NavigationScript.new()
 	navigation.configure(walk_polygon, blocked_polygons)
 	avatar = AvatarScript.new()
@@ -85,6 +96,8 @@ func set_active(value: bool) -> void:
 		avatar.set_active(value)
 	if atmosphere != null:
 		atmosphere.enabled = value
+	if supply_chest != null:
+		supply_chest.set_render_active(value)
 	if not value:
 		_hovering_entrance = false
 		_marker_life = 0.0

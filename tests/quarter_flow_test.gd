@@ -26,6 +26,12 @@ func frames(count: int = 4) -> void:
 	for i in count:
 		await process_frame
 		await physics_frame
+	var deadline := Time.get_ticks_msec() + 3000
+	while is_instance_valid(app) and app.is_transitioning() and Time.get_ticks_msec() < deadline:
+		await process_frame
+		await physics_frame
+	if is_instance_valid(app):
+		check(not app.is_transitioning(), "Scene animation must finish within three seconds")
 
 func mouse_motion(at: Vector2) -> void:
 	var event := InputEventMouseMotion.new()

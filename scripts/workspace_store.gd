@@ -1,7 +1,8 @@
 extends RefCounted
 ## Versioned local preferences, independent of quotes, account and order models.
 const Data = preload("res://scripts/demo_data.gd")
-const VERSION := 1
+const Record := preload("res://scripts/operation_record.gd")
+const VERSION := 2
 const MAX_BYTES := 4 * 1024 * 1024
 const MAX_NOTE_LENGTH := 100000
 var path: String
@@ -23,7 +24,7 @@ static func defaults() -> Dictionary:
 	var codes: Array = []
 	for stock: Dictionary in Data.STOCKS:
 		codes.append(stock.code)
-	return {"version":VERSION,"watchlist":codes,"notes":{}}
+	return {"version":VERSION,"watchlist":codes,"notes":{},"targets":{},"operation_draft":Record.empty_draft(),"operations":[],"live_operation_draft":Record.empty_draft(),"simulation_plan":{}}
 
 static func valid_code(value: Variant) -> bool:
 	return value is String and not value.is_empty() and value.length() <= 32 and value.strip_edges() == value
@@ -31,6 +32,26 @@ static func valid_code(value: Variant) -> bool:
 static func validate(value: Variant) -> bool:
 	if not value is Dictionary or value.get("version") != VERSION:
 		return false
+	if not _valid_preferences(value) or not Record.valid_targets(value.get("targets")) or not Record.valid_draft(value.get("operation_draft")):
+		return false
+	if not Record.valid_draft(value.get("live_operation_draft",Record.empty_draft())):
+		return false
+	var plan: Variant = value.get("simulation_plan",{})
+	if not plan is Dictionary: return false
+	if not plan.is_empty():
+		var candidate: Dictionary = plan.duplicate(true)
+		candidate.merge({"id":"0".repeat(32),"created_at":1,"local_time":"2000-01-01 00:00:00","utc_offset":0,"title":"검증","rationale":"검증","risk":"검증"},true)
+		if candidate.get("source")!=Record.LIVE_SOURCE or not Record.validate(candidate): return false
+	if not value.get("operations") is Array or value.operations.size() > Record.MAX_OPERATIONS:
+		return false
+	var ids := {}
+	for record: Variant in value.operations:
+		if not Record.validate(record) or ids.has(record.id):
+			return false
+		ids[record.id] = true
+	return true
+
+static func _valid_preferences(value: Dictionary) -> bool:
 	if not value.get("watchlist") is Array or not value.get("notes") is Dictionary:
 		return false
 	if value.watchlist.size() > 1000 or value.notes.size() > 1000:
@@ -59,6 +80,15 @@ func _read(source: String) -> Dictionary:
 	if error != OK:
 		return {"kind":"invalid"}
 	var value: Variant = parser.data
+	if value is Dictionary and value.get("version") == 1:
+		if not _valid_preferences(value):
+			return {"kind":"invalid"}
+		# Migration is in memory only; the original v1 becomes the backup on save.
+		value = value.duplicate(true)
+		value.version = VERSION
+		value.targets = {}
+		value.operation_draft = Record.empty_draft()
+		value.operations = []
 	if value is Dictionary and value.get("version") != VERSION:
 		return {"kind":"version"}
 	if not validate(value):
@@ -91,7 +121,7 @@ func load_profile() -> Dictionary:
 		message = "저장 파일 확인이 필요합니다. 원본을 보존하며 새 변경은 저장하지 않습니다."
 	return state.duplicate(true)
 
-func save_profile(watchlist: Array, notes: Dictionary) -> bool:
+func save_profile(watchlist: Array, notes: Dictionary, extra: Dictionary = {}) -> bool:
 	if blocked:
 		return false
 	if _fingerprint() != expected_fingerprint:
@@ -101,12 +131,15 @@ func save_profile(watchlist: Array, notes: Dictionary) -> bool:
 	var payload := state.duplicate(true)
 	payload.watchlist = watchlist.duplicate()
 	payload.notes = notes.duplicate(true)
+	for key: String in ["targets","operation_draft","operations","live_operation_draft","simulation_plan"]:
+		if extra.has(key):
+			payload[key] = extra[key].duplicate(true)
 	if not validate(payload):
 		message = "저장할 내용이 너무 길거나 형식이 잘못되었습니다. 변경 내용은 화면에 유지됩니다."
 		return false
 	var serialized := JSON.stringify(payload,"\t")
 	if serialized.to_utf8_buffer().size() > MAX_BYTES:
-		message = "저장 용량을 초과했습니다. 메모를 줄인 뒤 다시 저장해주세요."
+		message = "저장 용량을 초과했습니다. 작성 중인 메모나 명령서를 줄인 뒤 다시 저장해주세요. 기존 기록은 보존됩니다."
 		return false
 	if DirAccess.make_dir_recursive_absolute(path.get_base_dir()) != OK:
 		return _write_error()

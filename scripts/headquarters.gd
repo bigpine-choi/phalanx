@@ -8,6 +8,11 @@ const Spark = preload("res://scripts/terminal_sparkline.gd")
 const Fixtures = preload("res://scripts/terminal_fixtures.gd")
 const ResearchDetail = preload("res://scripts/research_detail.gd")
 const Store = preload("res://scripts/workspace_store.gd")
+const Desk = preload("res://scripts/command_surface.gd")
+const CommandPanel = preload("res://scripts/command_panel.gd")
+const Record = preload("res://scripts/operation_record.gd")
+const Order = preload("res://scripts/operation_order.gd")
+const Simulator = preload("res://scripts/portfolio_simulator.gd")
 var storage_path := Store.default_path()
 @export var embedded_in_camp := false
 
@@ -43,6 +48,11 @@ var compact := false
 var search: LineEdit
 var market_page: Control
 var portfolio_page: ScrollContainer
+var live_portfolio_page: ScrollContainer
+var simulator: Control
+var simulation_plan: Dictionary = {}
+var live_operation_draft: Dictionary = {}
+var _order_is_live := false
 var research_page: ScrollContainer
 var portfolio_split: BoxContainer
 var portfolio_rows: Array[Dictionary] = []
@@ -73,6 +83,9 @@ var retry_save_button: Button
 var save_timer: Timer
 var profile_dirty := false
 var save_failed := false
+var operation_draft: Dictionary = {}
+var operations: Array = []
+var _recording := false
 
 func _ready() -> void:
 	if not embedded_in_camp:
@@ -83,6 +96,12 @@ func _ready() -> void:
 	var saved: Dictionary = profile.load_profile()
 	watchlist_codes = saved.watchlist
 	notes_by_code = saved.notes
+	operation_draft = saved.operation_draft
+	live_operation_draft = saved.get("live_operation_draft",Record.empty_draft()).duplicate(true)
+	simulation_plan = saved.get("simulation_plan",{}).duplicate(true)
+	operations = saved.operations
+	for index: int in Data.STOCKS.size():
+		targets[index] = saved.targets.get(Data.STOCKS[index].code,Data.STOCKS[index].target)
 	save_timer = Timer.new()
 	save_timer.one_shot = true
 	save_timer.wait_time = 0.5
@@ -123,8 +142,8 @@ func _hbox(gap := 10) -> HBoxContainer:
 	return box
 
 func _panel(padding := 14) -> PanelContainer:
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel",T.style(T.PANEL,T.BORDER,7,padding))
+	var panel := CommandPanel.new()
+	panel.add_theme_stylebox_override("panel",T.panel_style(padding))
 	return panel
 
 func _expand(control: Control, vertical := false) -> void:
@@ -142,7 +161,7 @@ func _button(text: String, action: Callable) -> Button:
 func _section(parent: Node, heading: String, caption := "") -> void:
 	var row := _hbox()
 	parent.add_child(row)
-	var label := _label(heading,14)
+	var label := _label(heading,14,T.GOLD)
 	_expand(label)
 	row.add_child(label)
 	if not caption.is_empty():
@@ -156,17 +175,16 @@ func _divider(parent: Node) -> void:
 	parent.add_child(line)
 
 func _build_ui() -> void:
-	var background := ColorRect.new()
-	background.color = T.BG
+	var background := Desk.new()
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side: String in ["left","right"]:
-		margin.add_theme_constant_override("margin_"+side,18)
+		margin.add_theme_constant_override("margin_"+side,22)
 	for side: String in ["top","bottom"]:
-		margin.add_theme_constant_override("margin_"+side,10)
+		margin.add_theme_constant_override("margin_"+side,16)
 	add_child(margin)
 	var page := _vbox(10)
 	margin.add_child(page)
@@ -204,30 +222,30 @@ func _build_ui() -> void:
 	retry_save_button.add_theme_font_size_override("font_size",10)
 	status.add_child(retry_save_button)
 	status.add_child(_label("KRW   ·   실제 주문 미연결",11,T.MUTED))
-	dialog = AcceptDialog.new()
-	dialog.title = "Phalanx · 모의 매매계획"
-	dialog.ok_button_text = "확인"
-	dialog.min_size = Vector2i(620,400)
-	dialog.theme = theme
+	dialog = Order.new()
 	add_child(dialog)
+	dialog.draft_changed.connect(_operation_draft_changed)
+	dialog.record_requested.connect(_record_operation)
 	_select_workspace("market")
 
 func _build_header(page: Node) -> void:
 	var header := _hbox(20)
-	header.custom_minimum_size.y = 44
+	header.custom_minimum_size.y = 62
 	page.add_child(header)
-	header.add_child(_label("Φ",29,T.GOLD))
+	var seal := _label("Φ",42,T.GOLD)
+	seal.add_theme_font_override("font",T.title_font())
+	header.add_child(seal)
 	var brand := _vbox(0)
 	header.add_child(brand)
-	brand.add_child(_label("P H A L A N X",18,T.TEXT))
-	brand.add_child(_label("INVESTMENT WORKSPACE",9,T.MUTED,true))
+	brand.add_child(_label("전략 분석실",24,T.TEXT))
+	brand.add_child(_label("P H A L A N X  /  COMMAND LEDGER",9,T.GOLD,true))
 	var tabs := _hbox(4)
 	header.add_child(tabs)
-	for item: Array in [["시장","market"],["포트폴리오","portfolio"],["리서치","research"]]:
+	for item: Array in [["Ⅰ  시장","market"],["Ⅱ  포트폴리오","portfolio"],["Ⅲ  리서치","research"]]:
 		var button := _button(item[0],_select_workspace.bind(item[1]))
 		button.name = "Workspace_"+item[1]
 		button.toggle_mode = true
-		button.custom_minimum_size = Vector2(80,35)
+		button.custom_minimum_size = Vector2(94,40)
 		tabs.add_child(button)
 		workspace_buttons.append(button)
 	var spacer := Control.new()
@@ -274,7 +292,7 @@ func _build_summary(page: Node) -> void:
 		strip.add_child(group)
 		group.add_child(_label(item[0],11,T.MUTED))
 		group.add_child(_label(item[1]+"  KRW",22,item[2],true))
-	compact_plan_button = _button("비중 계획  ↗",_select_workspace.bind("portfolio"))
+	compact_plan_button = _button("샘플 비중 계획  ↗",_select_workspace.bind("sample"))
 	compact_plan_button.tooltip_text = "포트폴리오에서 목표 비중을 편집합니다."
 	strip.add_child(compact_plan_button)
 
@@ -286,7 +304,7 @@ func _build_watchlist() -> void:
 	watch_panel.add_child(box)
 	var heading := _hbox(4)
 	box.add_child(heading)
-	var title := _label("관심종목",14)
+	var title := _label("관심종목",14,T.GOLD)
 	_expand(title)
 	heading.add_child(title)
 	watch_count = _label("",11,T.GOLD,true)
@@ -410,7 +428,7 @@ func _build_detail() -> void:
 	average.add_theme_font_size_override("font_size",11)
 	average.toggled.connect(func(value: bool) -> void: chart.show_average=value; chart.queue_redraw())
 	legend.add_child(average)
-	var legend_text := _label("민트 상승 · 로즈 하락  /  하단 거래량",10,T.MUTED)
+	var legend_text := _label("녹색 상승 · 적갈색 하락  /  하단 거래량",10,T.MUTED)
 	_expand(legend_text)
 	legend_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	legend.add_child(legend_text)
@@ -422,7 +440,7 @@ func _build_brief() -> void:
 	brief_panel.add_child(box)
 	var row := _hbox()
 	box.add_child(row)
-	var title := _label("예시 브리핑",13)
+	var title := _label("◆  작전 브리핑 · 예시",13,T.GOLD)
 	_expand(title)
 	row.add_child(title)
 	score_label = _label("",11,T.GOLD)
@@ -477,10 +495,10 @@ func _build_account() -> void:
 	_section(box,"전체 목표 배분")
 	total_label = _wrap("",12,T.MUTED)
 	box.add_child(total_label)
-	preview_button = _button("모의 계획 검토  →",_show_plan)
+	preview_button = _button("작전 명령서 작성  →",_show_plan)
 	preview_button.name = "PreviewPlan"
 	preview_button.custom_minimum_size.y = 40
-	preview_button.add_theme_stylebox_override("normal",T.style(Color("1c443b"),Color("398574"),5,10))
+	preview_button.add_theme_stylebox_override("normal",T.style(Color("543322"),T.GOLD,2,10))
 	layout.add_child(preview_button)
 	var reset := _button("목표 비중 초기화",_reset_targets)
 	reset.add_theme_font_size_override("font_size",11)
@@ -496,6 +514,17 @@ func _scroll_page(host: Node, node_name: String) -> ScrollContainer:
 	return scroll
 
 func _build_portfolio(host: Node) -> void:
+	live_portfolio_page = _scroll_page(host,"LivePortfolioWorkspace")
+	simulator = Simulator.new()
+	live_portfolio_page.add_child(simulator)
+	simulator.sample_requested.connect(_select_workspace.bind("sample"))
+	simulator.order_requested.connect(_show_simulation_plan)
+	simulator.resume_requested.connect(func() -> void:
+		if simulation_plan.is_empty():
+			simulator.status_label.text = "저장된 실계좌 기반 명령서 초안이 없습니다. 계산 후 적용해주세요."
+			return
+		_order_is_live = true
+		dialog.open_plan(simulation_plan,live_operation_draft))
 	portfolio_page = _scroll_page(host,"PortfolioWorkspace")
 	portfolio_split = BoxContainer.new()
 	portfolio_split.add_theme_constant_override("separation",12)
@@ -507,6 +536,7 @@ func _build_portfolio(host: Node) -> void:
 	var box := _vbox(16)
 	panel.add_child(box)
 	_section(box,"포트폴리오","DEMO ACCOUNT  01")
+	box.add_child(_button("실계좌 · 작전 시뮬레이터로 돌아가기",_select_workspace.bind("portfolio")))
 	box.add_child(_wrap("보유 비중과 목표 비중을 한눈에 검토하세요.",12,T.MUTED))
 	var head := _hbox(8)
 	box.add_child(head)
@@ -569,24 +599,30 @@ func _build_research(host: Node) -> void:
 	note_editor = research_view.note_editor
 	note_status = research_view.note_status
 	note_editor.text_changed.connect(_note_changed)
+	research_view.context_changed.connect(_sync_advisor)
+	research_view.advisor.append_to_order.connect(_append_advisor)
 
 func _select_workspace(value: String) -> void:
-	if not value in ["market","portfolio","research"]:
+	if not value in ["market","portfolio","research","sample"]:
 		return
 	flush_profile()
 	workspace = value
-	market_strip.visible = value!="research"
-	summary_strip.visible = value!="research"
-	data_badge.text = "KIS · OFFICIAL IR" if value=="research" else "DEMO ACCOUNT  01"
+	market_strip.visible = value in ["market","sample"] and size.y >= 620
+	summary_strip.visible = value in ["market","sample"]
+	data_badge.text = "KIS · READ ONLY" if value=="portfolio" else ("KIS · OFFICIAL IR" if value=="research" else "DEMO ACCOUNT  01")
+	status_label.text = "실계좌 조회  /  배분 변경은 모의 계획" if value=="portfolio" else "가상 계좌  /  리서치 가격·재무는 별도 출처 표시"
 	market_page.visible = value == "market"
-	portfolio_page.visible = value == "portfolio"
+	portfolio_page.visible = value == "sample"
+	live_portfolio_page.visible = value == "portfolio"
 	research_page.visible = value == "research"
 	for index: int in workspace_buttons.size():
-		workspace_buttons[index].set_pressed_no_signal(["market","portfolio","research"][index] == value)
+		workspace_buttons[index].set_pressed_no_signal(["market","portfolio","research"][index] == ("portfolio" if value=="sample" else value))
 	compact_plan_button.visible = compact and workspace == "market"
 	_place_account()
 	if value == "research":
 		research_view.activate()
+	if value == "portfolio":
+		simulator.activate()
 
 func _place_account() -> void:
 	if account == null or portfolio_split == null:
@@ -594,9 +630,9 @@ func _place_account() -> void:
 	var desired_parent: Node = portfolio_split if workspace != "market" or compact else body
 	if account.get_parent() != desired_parent:
 		account.reparent(desired_parent)
-	account.visible = workspace == "portfolio" or (workspace == "market" and not compact)
+	account.visible = workspace == "sample" or (workspace == "market" and not compact)
 	account.custom_minimum_size.x = 0 if compact else 254
-	account.custom_minimum_size.y = 450 if workspace == "portfolio" else 0
+	account.custom_minimum_size.y = 450 if workspace == "sample" else 0
 	account.size_flags_horizontal = Control.SIZE_EXPAND_FILL if compact else Control.SIZE_FILL
 	account.size_flags_vertical = Control.SIZE_FILL
 
@@ -609,7 +645,7 @@ func _select_stock(index: int) -> void:
 	for i: int in stock_buttons.size():
 		stock_buttons[i].set_pressed_no_signal(i == index)
 		research_buttons[i].set_pressed_no_signal(i == index)
-		portfolio_rows[i].button.add_theme_stylebox_override("normal",T.style(Color("16352f") if i==index else T.INSET,T.BORDER,5,8))
+		portfolio_rows[i].button.add_theme_stylebox_override("normal",T.style(T.SELECTED if i==index else T.INSET,T.BORDER,2,8))
 	title_label.text = stock.name
 	sector_label.text = stock.code+"   /   "+stock.sector
 	price_label.text = Data.money(stock.price)
@@ -632,6 +668,7 @@ func _select_stock(index: int) -> void:
 	_refresh_favorite()
 	_refresh_save_status()
 	_update_plan()
+	_sync_advisor()
 
 func _filter_stocks(query: String) -> void:
 	var count := 0
@@ -672,6 +709,8 @@ func _target_changed(value: float) -> void:
 		return
 	targets[selected] = value
 	_update_plan()
+	_queue_profile_save()
+	_sync_advisor()
 
 func _update_plan() -> void:
 	for index: int in portfolio_rows.size():
@@ -692,21 +731,91 @@ func _update_plan() -> void:
 func _reset_targets() -> void:
 	for index: int in targets.size():
 		targets[index] = Data.STOCKS[index].target
+	_queue_profile_save()
 	_select_stock(selected)
 
 func _show_plan() -> void:
-	var result := Data.plan(targets)
-	if not result.valid:
+	_order_is_live = false
+	var result := Record.snapshot(targets)
+	if result.is_empty():
 		return
-	var lines := PackedStringArray(["가상 계좌의 목표 비중을 바탕으로 계산한 모의 계획입니다.",""])
-	for row: Dictionary in result.rows:
-		var action := "매수" if row.delta>0 else "매도"
-		lines.append("%s   |   %s %d주   |   %s 원   |   목표 %.1f%%" % [row.name,action if row.delta!=0 else "유지",absi(row.delta),Data.money(row.amount),row.target])
-	lines.append("")
-	lines.append("계획 후 예상 현금   %s 원" % Data.money(result.cash))
-	lines.append("수수료·세금·체결 오차 제외  /  실제 주문 미연결")
-	dialog.dialog_text = "\n".join(lines)
-	dialog.popup_centered(Vector2i(mini(740,int(get_viewport_rect().size.x)-48),420))
+	dialog.open_plan(result,operation_draft)
+
+func _show_simulation_plan(plan: Dictionary, evidence: String) -> void:
+	var combined: String = live_operation_draft.get("rationale","")
+	if not combined.contains(evidence): combined += ("\n\n" if not combined.is_empty() else "")+evidence
+	if combined.length()>Record.MAX_TEXT:
+		simulator.status_label.text = "기존 초안과 합치면 2,000자를 넘습니다. 참모 검토 없이 계산안을 적용하거나 초안을 줄여주세요."
+		return
+	var proposed := live_operation_draft.duplicate(true)
+	proposed.rationale = combined
+	if not Record.validate(Record.from_snapshot(plan,{"title":"검증","rationale":"검증","risk":"검증"})):
+		simulator.status_label.text = "계산안의 수량과 금액을 검증하지 못했습니다."
+		return
+	simulation_plan = plan.duplicate(true)
+	live_operation_draft = proposed
+	_order_is_live = true
+	_queue_profile_save()
+	flush_profile()
+	dialog.open_plan(simulation_plan,live_operation_draft)
+
+func _current_draft() -> Dictionary:
+	return live_operation_draft if _order_is_live else operation_draft
+
+func _operation_draft_changed(value: Dictionary) -> void:
+	if _order_is_live: live_operation_draft = value.duplicate(true)
+	else: operation_draft = value.duplicate(true)
+	_queue_profile_save()
+	_sync_advisor()
+	if not Record.valid_draft(value):
+		dialog.show_feedback("판단 근거와 위험은 각각 2,000자 이내로 작성해주세요.")
+	else:
+		dialog.show_feedback("작성 중인 초안을 자동 저장합니다. 봉인하면 확정 시점의 기록으로 남습니다.",false)
+
+func _profile_extra(draft: Dictionary, entries: Array) -> Dictionary:
+	var by_code: Dictionary = profile.state.targets.duplicate(true)
+	for index: int in Data.STOCKS.size():
+		by_code[Data.STOCKS[index].code] = targets[index]
+	return {"targets":by_code,"operation_draft":draft,"operations":entries,"live_operation_draft":live_operation_draft,"simulation_plan":simulation_plan}
+
+func _record_operation() -> void:
+	if _recording or dialog.recorded:
+		return
+	if not Record.valid_draft(_current_draft(),true):
+		dialog.show_feedback("작전 이름·판단 근거·주요 위험을 모두 작성해주세요. 근거와 위험은 각각 2,000자까지입니다.")
+		return
+	if operations.size() >= Record.MAX_OPERATIONS:
+		dialog.show_feedback("작전 일지의 200건 한도에 도달했습니다. 기존 기록은 그대로 보존됩니다.")
+		return
+	var record := Record.from_snapshot(simulation_plan,live_operation_draft) if _order_is_live else Record.create(targets,operation_draft)
+	if record.is_empty():
+		dialog.show_feedback("목표 비중과 가용 현금을 확인한 뒤 다시 작성해주세요.")
+		return
+	_recording = true
+	save_timer.stop()
+	var proposed := operations.duplicate(true)
+	proposed.append(record)
+	var next_draft := Record.empty_draft()
+	var extra := _profile_extra(operation_draft if _order_is_live else next_draft,proposed)
+	if _order_is_live:
+		extra.live_operation_draft = next_draft
+		extra.simulation_plan = {}
+	if profile.save_profile(watchlist_codes,notes_by_code,extra):
+		operations = proposed
+		if _order_is_live:
+			live_operation_draft = next_draft
+			simulation_plan = {}
+		else: operation_draft = next_draft
+		profile_dirty = false
+		save_failed = false
+		dialog.saved(record)
+	else:
+		profile_dirty = true
+		save_failed = true
+		dialog.show_feedback(profile.message+" 기록 완료로 처리하지 않았습니다. 같은 버튼으로 다시 시도할 수 있습니다.")
+	_recording = false
+	_refresh_save_status()
+	_sync_advisor()
 
 func _note_changed() -> void:
 	if updating:
@@ -717,8 +826,41 @@ func _note_changed() -> void:
 	else:
 		notes_by_code[code] = note_editor.text
 	_queue_profile_save()
+	_sync_advisor()
+
+func _sync_advisor() -> void:
+	if updating or not is_instance_valid(research_view) or targets.size()!=Data.STOCKS.size():
+		return
+	var stock: Dictionary = Data.STOCKS[selected]
+	research_view.advisor.set_context({"code":stock.code,"name":stock.name,
+		"quote":research_view.gateway.quote.duplicate(true),"financials":research_view.gateway.financials.duplicate(true),
+		"note":notes_by_code.get(stock.code,""),"plan":Record.snapshot(targets),"draft":operation_draft.duplicate(true)})
+
+func _append_advisor(field: String, text: String) -> void:
+	if field not in ["rationale","risk"] or text.is_empty():
+		return
+	var previous: String = operation_draft.get(field,"")
+	if previous.contains(text):
+		research_view.advisor.status_label.text = "이미 명령서 초안에 들어 있는 내용입니다."
+		return
+	var combined := previous+("\n\n" if not previous.is_empty() else "")+text
+	if combined.length()>Record.MAX_TEXT:
+		research_view.advisor.status_label.text = "명령서의 2,000자 한도를 넘습니다. 기존 초안을 줄인 뒤 추가하세요."
+		return
+	operation_draft[field] = combined
+	_queue_profile_save()
+	flush_profile()
+	_sync_advisor()
+	research_view.advisor.status_label.text = "초안에 추가했습니다. 저장 상태를 확인해주세요." if save_failed else "명령서 초안에 추가하고 저장했습니다."
+	_show_plan()
+
+func active_popup() -> Window:
+	if research_view.advisor.settings.visible:
+		return research_view.advisor.settings
+	return dialog if is_instance_valid(dialog) and dialog.visible else null
 
 func _responsive() -> void:
+	market_strip.visible = workspace in ["market","sample"] and size.y >= 620
 	if account == null:
 		return
 	compact = size.x < 1120
@@ -772,7 +914,7 @@ func flush_profile() -> void:
 	if profile == null or not profile_dirty:
 		return
 	save_timer.stop()
-	if profile.save_profile(watchlist_codes,notes_by_code):
+	if profile.save_profile(watchlist_codes,notes_by_code,_profile_extra(operation_draft,operations)):
 		profile_dirty = false
 		save_failed = false
 	else:

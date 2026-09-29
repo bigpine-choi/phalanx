@@ -14,6 +14,9 @@ func _initialize() -> void:
 func frames(count := 8) -> void:
 	for index: int in count:
 		await process_frame
+	var deadline := Time.get_ticks_msec() + 3000
+	while is_instance_valid(app) and app.is_transitioning() and Time.get_ticks_msec() < deadline:
+		await process_frame
 
 func run() -> void:
 	var args := OS.get_cmdline_user_args()
@@ -27,6 +30,7 @@ func run() -> void:
 	await frames()
 	app.camp.restore_position(app.camp.entrance_position)
 	app.camp.try_enter()
+	await frames()
 	app.dashboard_overlay.open_dashboard()
 	await frames(12)
 	if args.has("native"):

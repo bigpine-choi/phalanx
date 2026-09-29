@@ -4,6 +4,7 @@ var checks := 0
 var dashboard: Control
 
 func _initialize() -> void:
+	OS.set_environment("PHALANX_ACCOUNT_OFFLINE","1")
 	if not OS.get_cmdline_user_args().has("live"):
 		OS.set_environment("PHALANX_RESEARCH_OFFLINE","1")
 	OS.set_environment("PHALANX_RESEARCH_CACHE",OS.get_environment("TEMP").path_join("phalanx-research-test-%s" % OS.get_process_id()))
@@ -47,7 +48,10 @@ func run() -> void:
 	dashboard.target_input.value = 20.0
 	await click(dashboard.workspace_buttons[1])
 	await frames()
-	check(dashboard.workspace=="portfolio" and dashboard.account.is_visible_in_tree(),"Portfolio tab must expose the shared allocation planner")
+	check(dashboard.workspace=="portfolio" and dashboard.live_portfolio_page.visible,"Portfolio tab opens real-account workspace")
+	dashboard.simulator.sample_requested.emit()
+	await frames()
+	check(dashboard.workspace=="sample" and dashboard.account.is_visible_in_tree(),"Sample action exposes the original allocation planner")
 	check(dashboard.portfolio_rows[1].target.text=="20.0%","Portfolio table must show the current edited target")
 	await click(dashboard.portfolio_rows[2].button)
 	check(dashboard.selected==2 and dashboard.target_input.value==22.0,"A portfolio row must update shared selection and target editing")
@@ -92,8 +96,9 @@ func run() -> void:
 			await click(dashboard.compact_plan_button)
 		else:
 			await click(dashboard.workspace_buttons[1])
+			dashboard.simulator.sample_requested.emit()
 		await frames()
-		check(dashboard.workspace=="portfolio" and dashboard.account.is_visible_in_tree(),"Target editing must be reachable at "+str(resolution))
+		check(dashboard.workspace=="sample" and dashboard.account.is_visible_in_tree(),"Target editing must be reachable at "+str(resolution))
 		check(dashboard.portfolio_split.get_global_rect().end.x<=boundary.end.x+1,"Portfolio table must fit without horizontal scrolling "+str(resolution))
 		dashboard.portfolio_page.ensure_control_visible(dashboard.account)
 		dashboard.account_scroll.ensure_control_visible(dashboard.target_input)
