@@ -1,4 +1,5 @@
 extends SceneTree
+const Fixture = preload("res://tests/operation_fixture.gd")
 const Worker = preload("res://scripts/advisor_process.gd")
 const Model = preload("res://scripts/research_model.gd")
 const Record = preload("res://scripts/operation_record.gd")
@@ -10,6 +11,7 @@ var result: Dictionary = {}
 var error := ""
 
 func _initialize() -> void:
+	OS.set_environment("PHALANX_ACCOUNT_OFFLINE","1")
 	OS.set_environment("PHALANX_RESEARCH_OFFLINE","1")
 	OS.set_environment("PHALANX_ADVISOR_OFFLINE","1")
 	OS.set_environment("OPENAI_API_KEY","")
@@ -63,6 +65,7 @@ func run() -> void:
 	view.embedded_in_camp = true
 	view.storage_path = directory.path_join("workspace.json")
 	root.add_child(view)
+	Fixture.install(view)
 	view._select_workspace("research")
 	await frames()
 	var advisor: PanelContainer = view.research_view.advisor
@@ -89,20 +92,20 @@ func run() -> void:
 	advisor.request_report("brief",false)
 	await wait_worker(advisor.worker)
 	var fact: Dictionary = advisor.report.facts[0].duplicate(true)
-	view.operation_draft.rationale = "기존 사용자 근거"
+	view.live_operation_draft.rationale = "기존 사용자 근거"
 	view._sync_advisor()
 	advisor.request_report("brief",false)
 	await wait_worker(advisor.worker)
 	advisor._append(fact,false)
-	check(view.operation_draft.rationale.begins_with("기존 사용자 근거\n\n") and view.operation_draft.rationale.contains("출처:"),"Appending preserves user rationale with provenance")
+	check(view.live_operation_draft.rationale.begins_with("기존 사용자 근거\n\n") and view.live_operation_draft.rationale.contains("출처:"),"Appending preserves user rationale with provenance")
 	check(not view.profile_dirty and not view.save_failed and view.dialog.visible,"Append saved and opens reviewable draft")
 	var saved: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(view.storage_path))
-	check(saved.operation_draft.rationale==view.operation_draft.rationale,"Appended evidence persists")
+	check(saved.live_operation_draft.rationale==view.live_operation_draft.rationale,"Appended evidence persists")
 	view.dialog.hide()
-	view.operation_draft.risk = "a".repeat(1999)
+	view.live_operation_draft.risk = "a".repeat(1999)
 	view._append_advisor("risk","long")
-	check(view.operation_draft.risk.length()==1999,"Draft limit prevents overwrite/truncation")
-	view.operation_draft.risk = ""
+	check(view.live_operation_draft.risk.length()==1999,"Draft limit prevents overwrite/truncation")
+	view.live_operation_draft.risk = ""
 	view._sync_advisor()
 	for dimensions: Vector2i in [Vector2i(960,680),Vector2i(1280,720),Vector2i(1440,960),Vector2i(2160,1440)]:
 		root.size = dimensions

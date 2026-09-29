@@ -2,7 +2,7 @@ extends PanelContainer
 ## Shared paper document for a draft and an immutable historical record.
 signal draft_changed(value: Dictionary)
 const T := preload("res://scripts/terminal_theme.gd")
-const Data := preload("res://scripts/demo_data.gd")
+const Data := preload("res://scripts/market_data.gd")
 const Record := preload("res://scripts/operation_record.gd")
 const PAPER := Color("dbc69e")
 const INK := Color("3f3022")
@@ -56,7 +56,7 @@ func _ready() -> void:
 	seal = Seal.new()
 	header.add_child(seal)
 	seal.modulate.a = 0
-	source_label = _label(Record.SOURCE,11)
+	source_label = _label(Record.LIVE_SOURCE,11)
 	page.add_child(source_label)
 	_line(page)
 	page.add_child(_label("작전 이름",12))
@@ -127,7 +127,7 @@ func _changed() -> void:
 
 func display(plan: Dictionary, draft: Dictionary, recorded := false) -> void:
 	_updating = true
-	source_label.text = str(plan.get("source",Record.SOURCE))
+	source_label.text = str(plan.get("source",Record.LIVE_SOURCE))
 	if plan.get("source")==Record.LIVE_SOURCE:
 		source_label.text += "\n조회: "+str(plan.observed_at)+"\n"+str(plan.cash_basis)+" · 계좌 전체 순자산과 다른 계산 범위"
 	if is_instance_valid(_seal_tween):

@@ -1,4 +1,5 @@
 extends SceneTree
+const Fixture = preload("res://tests/operation_fixture.gd")
 ## Current-design regression checks. All events are synthetic Godot viewport input.
 ## This does not claim operating-system or human keyboard/mouse verification.
 ## Optional GPU captures: --script res://tests/quarter_flow_test.gd -- ABSOLUTE_OUTPUT_DIR
@@ -9,6 +10,7 @@ var app: Control
 var capture_directory := ""
 
 func _initialize() -> void:
+	OS.set_environment("PHALANX_ACCOUNT_OFFLINE","1")
 	if not OS.get_cmdline_user_args().has("live"):
 		OS.set_environment("PHALANX_RESEARCH_OFFLINE","1")
 	OS.set_environment("PHALANX_RESEARCH_CACHE",OS.get_environment("TEMP").path_join("phalanx-research-test-%s" % OS.get_process_id()))
@@ -157,28 +159,32 @@ func check_headquarters_and_dashboard() -> void:
 	check(is_instance_valid(dashboard), "The first map click must instantiate the dashboard")
 	if not is_instance_valid(dashboard):
 		return
+	dashboard._select_workspace("market")
+	await frames()
 	check(Input.mouse_mode == Input.MOUSE_MODE_VISIBLE, "Dashboard must keep a visible UI cursor")
 	check(dashboard.get("embedded_in_camp"), "The reused dashboard must retain embedded mode")
-	check(dashboard.get("stock_buttons").size() == 5, "All five demo stocks must remain available")
+	check(dashboard.get("stock_buttons").size() == 5, "The five initial watched securities remain available offline")
 	await click_control(dashboard.get("stock_buttons")[1])
 	await frames()
 	check(dashboard.get("selected") == 1, "Dashboard stock selection must respond to a real UI click")
+	# Inject public OHLCV only into this isolated runner; production stays empty offline.
+	var history: Array = []
+	for offset: int in 80:
+		var date := Time.get_datetime_string_from_unix_time(Time.get_unix_time_from_datetime_string("2026-06-01T00:00:00")+offset*86400).left(10)
+		history.append({"date":date,"open":100.0,"high":110.0,"low":90.0,"close":105.0,"volume":1000})
+	var gateway: Node = dashboard.research_view.gateway
+	var payload := {"provider":"KIS","code":"000660","currency":"KRW","market":"KRX","adjusted":true,"fetched_at":1790640000,"requested_start":"2026-06-01","requested_end":"2026-09-28","candles":history}
+	gateway._kis_completed("000660",gateway.generation,payload)
 	await click_control(dashboard.get("period_buttons")[0])
 	await frames()
 	check(dashboard.get("chart").get("candles").size() == 22, "Chart period UI must retain one-month data")
-	# The shared financial smoke test separately exercises numeric target editing.
-	dashboard.get("target_input").value = 20.0
-	await frames()
-	check(dashboard.get("targets")[1] == 20.0, "Changing a target must preserve the existing model/UI binding")
+	Fixture.install(dashboard)
 	await capture("dashboard")
-	check(dashboard.get("body").get_global_rect().end.x <= root.size.x + 1, "Dashboard must fit horizontally at each review resolution")
-	check(dashboard.get("account").is_visible_in_tree() or dashboard.get("compact_plan_button").is_visible_in_tree(), "Allocation planning must remain reachable at the review resolution")
-	# Ensure the account action is in the scroll viewport before synthetic clicking.
-	var preview: Button = dashboard.get("preview_button")
-	var scroll: ScrollContainer = dashboard.get("account_scroll")
-	scroll.ensure_control_visible(dashboard.get("target_input"))
+	check(dashboard.body.get_global_rect().end.x <= root.size.x+1,"Market fits viewport without a sample account")
+	await click_control(dashboard.portfolio_button)
 	await frames()
-	await click_control(preview)
+	check(dashboard.live_portfolio_page.visible,"Portfolio entry opens the actual account workspace")
+	dashboard._show_plan()
 	await frames()
 	check(dashboard.get("dialog").visible, "The portfolio plan popup must open from its dashboard button")
 	await tap(KEY_ESCAPE)
@@ -189,7 +195,7 @@ func check_headquarters_and_dashboard() -> void:
 	await click_world(table_center)
 	await frames()
 	check(overlay.get("dashboard") == dashboard, "Reopening the map must reuse the dashboard instance")
-	check(dashboard.get("selected") == 1 and dashboard.get("targets")[1] == 20.0 and dashboard.get("chart").get("candles").size() == 22, "Selection, target and chart period must survive the dashboard round trip")
+	check(dashboard.get("selected") == 1 and dashboard.simulation_plan.rows[0].target == 20.0 and dashboard.get("chart").get("candles").size() == 22, "Selection, target and chart period must survive the dashboard round trip")
 	await click_control(overlay.get("close_button"))
 	await frames()
 	check(not overlay.call("is_open") and app.get("mode") == "headquarters", "Dashboard return button must return to headquarters, not camp")

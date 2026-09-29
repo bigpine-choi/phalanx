@@ -30,6 +30,15 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(data['candles'][0]['close'], 105)
         self.assertEqual(set(data), {'provider','market','adjusted','code','currency','fetched_at','requested_start','requested_end','candles'})
 
+    def test_dynamic_security_and_fixed_clock(self):
+        now = datetime(2026,9,29,1,tzinfo=ZoneInfo('Asia/Seoul'))
+        data = bridge.collect('123459', Reader(), now)
+        self.assertEqual(data['code'], '123459')
+        self.assertEqual(data['fetched_at'], int(now.timestamp()))
+        for code in ['../keys', '12345', '１２３４５６', '005930;echo', '', None]:
+            with self.subTest(code=code), self.assertRaises(ValueError):
+                bridge.collect(code, object(), now)
+
     def test_allowlist_precedes_provider(self):
         with self.assertRaises(ValueError):
             bridge.collect('../credentials', object())

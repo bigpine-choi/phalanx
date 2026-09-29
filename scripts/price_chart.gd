@@ -1,5 +1,5 @@
 extends Control
-const Data = preload("res://scripts/demo_data.gd")
+const Data = preload("res://scripts/market_data.gd")
 const T = preload("res://scripts/terminal_theme.gd")
 const UP := Color("365e46")
 const DOWN := Color("9b4834")
@@ -20,10 +20,6 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_exited.connect(func() -> void: hover_index=-1; queue_redraw())
 	resized.connect(queue_redraw)
-
-func set_stock(index: int) -> void:
-	full_history = Data.history(index)
-	set_period(days)
 
 func set_history(value: Array) -> void:
 	full_history = value.duplicate(true)

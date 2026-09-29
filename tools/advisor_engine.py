@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal, localcontext
 import math
+import re
 from urllib.parse import urlparse
 
 from phalanx.decimal_math import financial_decimal_context
@@ -45,15 +46,18 @@ def volume(value):
 def build_report(context, now=None):
     now = now or datetime.now(UTC)
     code = context.get("code")
-    if code not in CODES or context.get("mode") not in {"brief", "counter", "review"}:
+    if not isinstance(code, str) or not re.fullmatch(r"[0-9A-Z]{6}", code) or context.get("mode") not in {"brief", "counter", "review"}:
         raise ValueError("invalid selection")
+    name = CODES.get(code, context.get("name", code))
+    if not isinstance(name, str) or not 1 <= len(name) <= 80 or any(ord(c) < 32 for c in name):
+        raise ValueError("invalid security name")
     note = context.get("note", "")
     draft = context.get("draft", {})
     if not isinstance(note, str) or len(note) > 8000 or not isinstance(draft, dict):
         raise ValueError("invalid text")
     if any(not isinstance(draft.get(k, ""), str) or len(draft.get(k, "")) > limit for k, limit in [("title", 80), ("rationale", 2000), ("risk", 2000)]):
         raise ValueError("invalid draft")
-    report = {"version": 1, "code": code, "name": CODES[code], "mode": context["mode"],
+    report = {"version": 1, "code": code, "name": name, "mode": context["mode"],
               "created_at": now.isoformat(), "facts": [], "sources": [], "missing": [],
               "analysis": [], "ai_state": "not_requested", "calculator": "Phalanx Python · Decimal 50자리"}
 
@@ -79,10 +83,15 @@ def build_report(context, now=None):
             job = HistoryJob(job_id=digest[:32], created_at=now, discovery_run_id="godot_snapshot_no_discovery",
                              discovery_started_at=now, discovery_completed_at=now,
                              start=bars[0].trade_date, end=bars[-1].trade_date,
-                             targets=(HistoryTarget(market=Market.KOSPI, short_code=code, standard_code=None, name=CODES[code], policy_version="godot_research_snapshot_v1", source_files=()),))
+                             targets=(HistoryTarget(market=Market.KOSPI, short_code=code, standard_code=None, name=name, policy_version="godot_research_snapshot_v1", source_files=()),))
             features = calculate_price_features(job, (SymbolHistory(ordinal=0, status=SymbolStatus.COMPLETED, result=history),), as_of=bars[-1].trade_date, calculated_at=now)
             symbol = features.symbols[0]
             report["price_features"] = features.model_dump(mode="json")
+            # The legacy pure calculator requires an exchange enum but does not use
+            # it in arithmetic. Never publish that placeholder as verified metadata.
+            if code not in CODES:
+                report["price_features"]["symbols"][0]["target"].pop("market", None)
+                report["price_features"]["market_classification"] = "not_verified"
             received = datetime.fromtimestamp(float(fetched), timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M KST")
             source("Q", "KIS 수정주가 일봉", quote["as_of"], f"전체 {len(bars)}개 일봉 중 각 지표에 필요한 기간을 사용\n수신 {received}\n배당 제외 가격 수익률 · 거래일 누락 미검증", "quote", quote.get("source_url", ""))
             fact("마지막 관측 종가", f"{bars[-1].close_price:,.0f}원 · 이전 관측 대비 {pct(bars[-1].close_price / bars[-2].close_price - 1)}", ["Q"])
@@ -138,17 +147,20 @@ def build_report(context, now=None):
             plan = context.get("plan", {})
             if plan:
                 rows = plan.get("rows", [])
-                if len(rows) != 5 or {r.get("code") for r in rows} != set(CODES) or "샘플" not in plan.get("source", ""):
-                    raise ValueError("invalid demo plan")
+                if plan.get("source") != "실계좌 조회 기반 모의 계획 · 실제 주문 미연결" or not 1 <= len(rows) <= 100:
+                    raise ValueError("invalid live plan")
+                codes = [r.get("code") for r in rows]
+                if any(not isinstance(c, str) or not c or len(c)>32 for c in codes) or len(set(codes))!=len(codes):
+                    raise ValueError("invalid plan codes")
+                if any(not isinstance(r.get("name"),str) or not 1<=len(r["name"])<=200 for r in rows):
+                    raise ValueError("invalid plan names")
                 total = sum((number(r["target"]) for r in rows), Decimal(0))
                 if any(not 0 <= number(r["target"]) <= 100 for r in rows) or total > Decimal('100.0001'):
                     raise ValueError("invalid weights")
-                semi = sum((number(r["target"]) for r in rows if r["code"] in {"005930", "000660"}), Decimal(0))
-                source("P", "모의 계좌 목표 배분", "요청 시점 · 샘플 시세", "\n".join(f"{CODES[r['code']]} {number(r['target']):.1f}%" for r in rows) + "\n실계좌 아님 · KODEX 200의 내부 종목은 미분해", "plan")
-                fact("목표 주식 / 잔여 비중", f"주식 {total:.1f}% · 잔여 목표 {100-total:.1f}% (정수주 계획 후 실제 현금 비중과 다를 수 있음)", ["P"])
-                fact("직접 보유 반도체 목표 합계", f"삼성전자 + SK하이닉스 {semi:.1f}% · ETF 내부 편입분 제외", ["P"])
+                source("P", "실계좌 기반 모의 목표 배분", str(plan.get("observed_at", "조회 시점")), "\n".join(f"{r['name']} ({r['code']}) {number(r['target']):.2f}%" for r in rows) + "\n투입 현금은 사용자 가정 · 금액·수량·계좌번호 제외 · 실제 주문 미연결", "plan")
+                fact("목표 주식 / 잔여 비중", f"주식 {total:.2f}% · 잔여 목표 {100-total:.2f}% (정수주 계획 후 현금 비중과 다를 수 있음)", ["P"])
             else:
-                report["missing"].append("유효한 모의 계획이 없습니다. 목표 비중을 조정하세요.")
+                report["missing"].append("적용한 실계좌 변경안이 없습니다. 포트폴리오에서 계산 후 명령서에 적용하세요.")
             source("D", "작성 중인 명령서", "요청 시점", "\n".join(f"{k}: {draft.get(k, '')}" for k in ("title", "rationale", "risk")), "draft")
         report["missing"].append("공시/뉴스를 자동 검색하지 않습니다. 제공된 자료 밖의 가격 변동 원인은 확인할 수 없습니다.")
     return report

@@ -80,7 +80,7 @@ class PortfolioTests(unittest.TestCase):
                 rows=[dict(code=str(i),name="fixture",price=str(100+i*37),quantity=str(i+1),sellable=str(i+1)) for i in range(count)]
                 nav=sum(Decimal(r["price"])*Decimal(r["quantity"]) for r in rows)+cash
                 targets={r["code"]:str((Decimal(r["price"])*Decimal(r["quantity"])/nav*100).quantize(Decimal("0.01"),rounding=ROUND_FLOOR)) for r in rows}
-                r=simulate(dict(account=dict(source="demo",currency="KRW",rows=rows),cash_assumption=str(cash),keep_holdings=True,targets=targets))
+                r=simulate(dict(account=dict(source="kis_account",currency="KRW",rows=rows),cash_assumption=str(cash),keep_holdings=True,targets=targets))
                 self.assertTrue(all(x["delta"]==0 for x in r["plan"]["rows"]))
                 self.assertEqual(r["plan"]["planned_cash"],cash)
 

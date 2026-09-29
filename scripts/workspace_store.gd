@@ -1,6 +1,6 @@
 extends RefCounted
 ## Versioned local preferences, independent of quotes, account and order models.
-const Data = preload("res://scripts/demo_data.gd")
+const Data = preload("res://scripts/market_data.gd")
 const Record := preload("res://scripts/operation_record.gd")
 const VERSION := 2
 const MAX_BYTES := 4 * 1024 * 1024
@@ -24,7 +24,7 @@ static func defaults() -> Dictionary:
 	var codes: Array = []
 	for stock: Dictionary in Data.STOCKS:
 		codes.append(stock.code)
-	return {"version":VERSION,"watchlist":codes,"notes":{},"targets":{},"operation_draft":Record.empty_draft(),"operations":[],"live_operation_draft":Record.empty_draft(),"simulation_plan":{}}
+	return {"version":VERSION,"watchlist":codes,"notes":{},"operations":[],"live_operation_draft":Record.empty_draft(),"simulation_plan":{},"security_names":{}}
 
 static func valid_code(value: Variant) -> bool:
 	return value is String and not value.is_empty() and value.length() <= 32 and value.strip_edges() == value
@@ -32,7 +32,7 @@ static func valid_code(value: Variant) -> bool:
 static func validate(value: Variant) -> bool:
 	if not value is Dictionary or value.get("version") != VERSION:
 		return false
-	if not _valid_preferences(value) or not Record.valid_targets(value.get("targets")) or not Record.valid_draft(value.get("operation_draft")):
+	if not _valid_preferences(value) or not Record.valid_targets(value.get("targets",{})) or not Record.valid_draft(value.get("operation_draft",Record.empty_draft())):
 		return false
 	if not Record.valid_draft(value.get("live_operation_draft",Record.empty_draft())):
 		return false
@@ -56,6 +56,10 @@ static func _valid_preferences(value: Dictionary) -> bool:
 		return false
 	if value.watchlist.size() > 1000 or value.notes.size() > 1000:
 		return false
+	var names: Variant = value.get("security_names",{})
+	if not names is Dictionary or names.size()>1000: return false
+	for code: Variant in names:
+		if not Data.valid_code(code) or not names[code] is String or names[code].is_empty() or names[code].length()>80: return false
 	var seen := {}
 	for code: Variant in value.watchlist:
 		if not valid_code(code) or seen.has(code):
@@ -86,8 +90,6 @@ func _read(source: String) -> Dictionary:
 		# Migration is in memory only; the original v1 becomes the backup on save.
 		value = value.duplicate(true)
 		value.version = VERSION
-		value.targets = {}
-		value.operation_draft = Record.empty_draft()
 		value.operations = []
 	if value is Dictionary and value.get("version") != VERSION:
 		return {"kind":"version"}
@@ -131,7 +133,7 @@ func save_profile(watchlist: Array, notes: Dictionary, extra: Dictionary = {}) -
 	var payload := state.duplicate(true)
 	payload.watchlist = watchlist.duplicate()
 	payload.notes = notes.duplicate(true)
-	for key: String in ["targets","operation_draft","operations","live_operation_draft","simulation_plan"]:
+	for key: String in ["targets","operation_draft","operations","live_operation_draft","simulation_plan","security_names"]:
 		if extra.has(key):
 			payload[key] = extra[key].duplicate(true)
 	if not validate(payload):

@@ -1,4 +1,5 @@
 extends SceneTree
+const Fixture = preload("res://tests/operation_fixture.gd")
 ## HISTORICAL: archived first-person camp only; not validation of the current quarter-view flow.
 ## Current scene-flow regression: res://tests/quarter_flow_test.gd.
 
@@ -8,6 +9,7 @@ var closed_count: int = 0
 var activated_count: int = 0
 
 func _initialize() -> void:
+	OS.set_environment("PHALANX_ACCOUNT_OFFLINE","1")
 	call_deferred("_run")
 
 func check(condition: bool, message: String) -> void:
@@ -155,6 +157,7 @@ func _run() -> void:
 
 	# Native popup event routing is simulated here; real window behavior needs GUI QA.
 	overlay.open_dashboard()
+	Fixture.install(dashboard)
 	dashboard.call("_show_plan")
 	await _settle()
 	var preview: AcceptDialog = dashboard.get("dialog") as AcceptDialog
@@ -162,6 +165,7 @@ func _run() -> void:
 	preview.canceled.emit()
 	check(overlay.is_open(), "Canceling the preview must leave the dashboard open")
 	preview.hide()
+	Fixture.install(dashboard)
 	dashboard.call("_show_plan")
 	await _settle()
 	var native_escape := InputEventKey.new()
@@ -180,6 +184,7 @@ func _run() -> void:
 	await _settle()
 	check(not overlay.is_open() and closed_count == 3 and player.exploring, "Next Escape must close the dashboard and resume exploration")
 	overlay.open_dashboard()
+	Fixture.install(dashboard)
 	dashboard.call("_show_plan")
 	await _settle()
 	_escape()
@@ -190,7 +195,7 @@ func _run() -> void:
 	check(not overlay.is_open(), "Second main viewport Escape must close the dashboard")
 
 	# Reopening reuses the dashboard and preserves an in-session portfolio edit.
-	dashboard.call("_target_changed", 20.0)
+	Fixture.install(dashboard)
 	for iteration: int in range(4):
 		var old_opens: int = opened_count
 		var old_closes: int = closed_count
@@ -199,7 +204,7 @@ func _run() -> void:
 		await _settle()
 		check(overlay.dashboard.get_instance_id() == dashboard_id, "Repeated opening must reuse one dashboard instance")
 		check(_dashboard_count(camp) == 1 and opened_count == old_opens + 1, "Opening twice must not duplicate UI or opened signals")
-		check(dashboard.get("targets")[0] == 20.0, "Closing and reopening must preserve the current demo allocation")
+		check(dashboard.simulation_plan.rows[0].target == 20.0, "Closing and reopening must preserve the current demo allocation")
 		overlay.close_dashboard()
 		overlay.close_dashboard()
 		check(closed_count == old_closes + 1, "Closing twice must emit closed only once")
@@ -224,7 +229,7 @@ func _run() -> void:
 		check(dashboard.get("body").get_global_rect().end.x <= window_size.x + 1, "Dashboard must not overflow horizontally at %s" % window_size)
 		if scroll != null:
 			var period_buttons: Array = dashboard.get("period_buttons")
-			var required_controls: Array[Control] = [dashboard.find_child("StockSearch", true, false) as Control, period_buttons[0] as Control, dashboard.get("target_input") as Control, dashboard.get("preview_button") as Control]
+			var required_controls: Array[Control] = [dashboard.find_child("StockSearch", true, false) as Control, period_buttons[0] as Control, dashboard.portfolio_button as Control]
 			for control: Control in required_controls:
 				check(control != null, "Main dashboard controls must exist")
 				if control == null:

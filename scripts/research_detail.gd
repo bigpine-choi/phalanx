@@ -1,9 +1,9 @@
 extends VBoxContainer
 signal context_changed
-## Research workspace content, separate from the synthetic account controls.
+## Research and advisor content shares public observations with the market workspace.
 const T = preload("res://scripts/terminal_theme.gd")
 const CommandPanel = preload("res://scripts/command_panel.gd")
-const Data = preload("res://scripts/demo_data.gd")
+const Data = preload("res://scripts/market_data.gd")
 const Model = preload("res://scripts/research_model.gd")
 const Gateway = preload("res://scripts/research_gateway.gd")
 const Chart = preload("res://scripts/price_chart.gd")
@@ -183,14 +183,16 @@ func _build() -> void:
 	notes.add_child(_label("가격은 KRX 수정주가 일봉, 재무는 연간 연결 기준입니다. 서로의 기준일을 확인하세요.\n\nPER·PBR·컨센서스: 자료 없음\n분기·반기 추이: 미포함",12,T.MUTED,true))
 	var source := _button("KIS 일봉 안내 열기 ↗",_open_price_source)
 	notes.add_child(source)
-	notes.add_child(_label("이 화면의 조회 가격은 가상 계좌 평가액과 모의 계획에 적용되지 않습니다.",11,T.MUTED,true))
+	notes.add_child(_label("일봉 종가와 계좌 조회가는 기준 시점이 다릅니다. 배분 변경은 계좌를 조회한 시점의 가격으로 계산합니다.",11,T.MUTED,true))
 
 func select_stock(index: int) -> void:
-	current_code = Data.STOCKS[index].code
-	title_label.text = Data.STOCKS[index].name+"  /  종목 분석"
+	select_security(Data.STOCKS[index])
+
+func select_security(stock: Dictionary) -> void:
+	current_code = stock.code
+	title_label.text = stock.name+"  /  종목 분석"
 	gateway.select_stock(current_code)
-	if is_visible_in_tree():
-		gateway.activate()
+	if is_visible_in_tree(): gateway.activate()
 
 func activate() -> void:
 	gateway.activate()
@@ -222,7 +224,7 @@ func _render() -> void:
 		current_quote = {}
 	else:
 		var candles: Array = quote.candles
-		var change: float = (candles[-1].close/candles[-2].close-1)*100
+		var change: float = (float(candles[-1].close)/float(candles[-2].close)-1)*100
 		price_label.text = Data.money(candles[-1].close)+" 원"
 		change_label.text = "%+.2f%%  이전 일봉 대비" % change
 		change_label.add_theme_color_override("font_color",T.ACCENT if change>=0 else T.RED)
@@ -288,7 +290,7 @@ func _table_label(text: String, color: Color) -> void:
 	values_table.add_child(label)
 
 func _open_price_source() -> void:
-	if current_code in Model.CODES:
+	if Data.valid_code(current_code):
 		OS.shell_open(Model.KIS_SOURCE)
 
 func _responsive() -> void:

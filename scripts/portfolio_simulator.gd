@@ -1,9 +1,9 @@
 extends VBoxContainer
-signal sample_requested
+signal account_state_changed
 signal resume_requested
 signal order_requested(plan: Dictionary, evidence: String)
 const T = preload("res://scripts/terminal_theme.gd")
-const Data = preload("res://scripts/demo_data.gd")
+const Data = preload("res://scripts/market_data.gd")
 const Worker = preload("res://scripts/portfolio_process.gd")
 const ERRORS := {"OFFLINE":"오프라인 · 계좌 조회를 실행하지 않았습니다.","ACCOUNT_CONFIG":"기존 KIS 계좌 연결 설정을 확인해주세요.","ACCOUNT_AUTH":"KIS 인증에 실패했습니다. 기존 계좌 설정을 확인해주세요.","ACCOUNT_QUERY_FAILED":"계좌 또는 보유종목 시세 조회를 완료하지 못했습니다. 다시 조회해주세요.","OVER_ALLOCATED":"목표 비중 합계가 100%를 넘습니다.","SELLABLE_EXCEEDED":"매도가능수량을 초과하는 계획입니다. 목표 비중을 높여주세요.","QUANTITY_INVALID":"정수주로 계획할 수 없는 잔고입니다.","NO_HOLDINGS":"계획할 보유종목이 없습니다.","KEY_MISSING":"리서치의 연결 설정에서 OpenAI 키를 저장해주세요.","LIMIT_REACHED":"OpenAI 사용 한도 또는 결제 상태를 확인해주세요.","AUTH_FAILED":"OpenAI 인증을 확인해주세요.","TIMEOUT":"조회 시간이 초과됐습니다. 다시 시도해주세요."}
 var account: Dictionary = {}
@@ -91,7 +91,6 @@ func _ready() -> void:
 	refresh_button = _button("계좌 새로고침",refresh_account)
 	header.add_child(refresh_button)
 	header.add_child(_button("작성 중 명령서",func() -> void: resume_requested.emit()))
-	header.add_child(_button("샘플 계좌 보기",func() -> void: sample_requested.emit()))
 	metadata = _label("한국투자증권 · 조회 전용 · 계좌를 조회하면 보유종목 전체를 표시합니다.",12,T.MUTED)
 	add_child(metadata)
 	summary_grid = GridContainer.new()
@@ -273,6 +272,7 @@ func _invalidate() -> void:
 	_buttons()
 
 func _buttons() -> void:
+	account_state_changed.emit()
 	if not is_instance_valid(refresh_button): return
 	var usable := not account.is_empty() and not rows.is_empty() and not stale
 	refresh_button.disabled = busy
@@ -372,3 +372,14 @@ func _cancel() -> void:
 	busy = false
 	status_label.text = "요청을 취소했습니다. 전송된 AI 요청에는 비용이 발생할 수 있습니다."
 	_buttons()
+
+func focus_position(code: String) -> bool:
+	for row: Dictionary in rows:
+		if row.code==code:
+			var outer := get_parent()
+			if outer is ScrollContainer: outer.ensure_control_visible(holdings_scroll)
+			holdings_scroll.ensure_control_visible(row.input)
+			row.input.get_line_edit().grab_focus()
+			row.input.get_line_edit().select_all()
+			return true
+	return false

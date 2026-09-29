@@ -33,7 +33,7 @@ func _ready() -> void:
 	kis.completed.connect(_kis_completed)
 
 func select_stock(value: String) -> void:
-	if value==code:
+	if not Model.Data.valid_code(value) or value==code:
 		return
 	if quote_state=="loading":
 		# A queued lookup can be superseded. Returning to it must fetch again.
@@ -48,7 +48,7 @@ func select_stock(value: String) -> void:
 	quote_state = "cached" if not quote.is_empty() else "empty"
 	financial_state = ("snapshot" if financials.get("mode")=="verified_snapshot" else "cached") if not financials.is_empty() else "empty"
 	quote_message = "저장된 일봉 · 새로고침으로 다시 조회" if not quote.is_empty() else "일봉을 조회하면 표시됩니다."
-	financial_message = ("공식 IR에서 확인한 연간 재무 · 고정 자료" if financial_state=="snapshot" else "이전에 조회한 연간 연결 재무") if not financials.is_empty() else ("ETF에는 기업 재무제표를 적용하지 않습니다." if code=="069500" else "자료 없음 · OpenDART 연결 후 조회할 수 있습니다.")
+	financial_message = ("공식 IR에서 확인한 연간 재무 · 고정 자료" if financial_state=="snapshot" else "이전에 조회한 연간 연결 재무") if not financials.is_empty() else ("ETF에는 기업 재무제표를 적용하지 않습니다." if code=="069500" else ("자료 없음 · OpenDART 연결 후 조회할 수 있습니다." if Model.CORPS.has(code) else "자료 없음 · 이 종목의 공시 연결은 아직 준비되지 않았습니다."))
 	changed.emit()
 
 func activate() -> void:
@@ -56,7 +56,7 @@ func activate() -> void:
 		refresh()
 
 func refresh() -> void:
-	if not code in Model.CODES:
+	if not Model.Data.valid_code(code):
 		return
 	if not online:
 		quote_message = "오프라인 · 저장된 일봉" if not quote.is_empty() else "오프라인 · 일봉 자료 없음"

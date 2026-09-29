@@ -9,12 +9,14 @@ from zoneinfo import ZoneInfo
 import json
 import os
 import sys
+import re
 
-CODES = frozenset({'005930', '000660', '005380', '035420', '069500'})
+def valid_code(code):
+    return isinstance(code, str) and re.fullmatch(r"[0-9A-Z]{6}", code) is not None
 
 
 def collect(code, reader, now=None):
-    if code not in CODES:
+    if not valid_code(code):
         raise ValueError('unsupported security')
     now = now or datetime.now(ZoneInfo('Asia/Seoul'))
     end = now.date() - timedelta(days=1)
@@ -31,13 +33,13 @@ def collect(code, reader, now=None):
     if not 2 <= len(candles) <= 300:
         raise ValueError('insufficient/excess history')
     return {'provider': 'KIS', 'code': code, 'currency': 'KRW',
-            'market': 'KRX', 'adjusted': True, 'fetched_at': int(datetime.now().timestamp()),
+            'market': 'KRX', 'adjusted': True, 'fetched_at': int(now.timestamp()),
             'requested_start': start.isoformat(), 'requested_end': end.isoformat(),
             'candles': candles}
 
 
 def main():
-    if len(sys.argv) != 4 or sys.argv[1] not in CODES:
+    if len(sys.argv) != 4 or not valid_code(sys.argv[1]):
         return 2
     code, output, request_id = sys.argv[1:]
     try:

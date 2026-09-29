@@ -10,7 +10,7 @@ var directory := ""
 var sequence := 0
 
 func request(code: String, token: int) -> void:
-	if not code in Model.CODES:
+	if not Model.Data.valid_code(code):
 		return
 	pending = {"code":code,"token":token}
 	if pid<0:

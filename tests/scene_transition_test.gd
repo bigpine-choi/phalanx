@@ -1,4 +1,5 @@
 extends SceneTree
+const Fixture = preload("res://tests/operation_fixture.gd")
 ## Behavioral checks use real animation time and real viewport input dispatch.
 var app: Control
 var checks := 0
@@ -7,6 +8,7 @@ var opened_count := 0
 var closed_count := 0
 
 func _initialize() -> void:
+	OS.set_environment("PHALANX_ACCOUNT_OFFLINE","1")
 	OS.set_environment("PHALANX_RESEARCH_OFFLINE", "1")
 	OS.set_environment("PHALANX_RESEARCH_CACHE", OS.get_environment("TEMP").path_join("phalanx-transition-%d" % OS.get_process_id()))
 	OS.set_environment("PHALANX_WORKSPACE_PATH", OS.get_environment("TEMP").path_join("phalanx-transition-%d.json" % OS.get_process_id()))
@@ -76,7 +78,7 @@ func run() -> void:
 	check(opened_count == 1 and app.mode == "headquarters", "Repeated map open must keep one modal and one opening signal")
 	check(overlay.presentation.scale.is_equal_approx(Vector2.ONE) and overlay.presentation.position.is_zero_approx(), "Unfold must finish at the full responsive layout")
 	dashboard._select_stock(1)
-	dashboard.target_input.value = 20.0
+	Fixture.install(dashboard)
 	dashboard._set_period(22)
 	overlay.close_dashboard()
 	check(overlay.is_open() and not app.headquarters.active, "Closing must retain modality until the fold completes")
@@ -94,13 +96,13 @@ func run() -> void:
 	root.size = Vector2i(1100,740)
 	await settle()
 	check(overlay.phase == "open" and overlay.presentation.position.is_zero_approx(), "Resize during unfold must settle a usable layout")
-	check(overlay.dashboard == dashboard and dashboard.selected == 1 and dashboard.targets[1] == 20.0 and dashboard.chart.days == 22, "Reopening and resizing must preserve shared analysis state")
+	check(overlay.dashboard == dashboard and dashboard.selected == 1 and dashboard.simulation_plan.rows[0].target == 20.0 and dashboard.chart.days == 22, "Reopening and resizing must preserve shared analysis state")
 	root.min_size = Vector2i(900,680)
 	root.size = Vector2i(900,680)
 	for i in 5:
 		await process_frame
 	check(dashboard.watch_panel.get_global_rect().end.y < dashboard.status_label.get_global_rect().position.y, "Embedded watchlist must stay above the footer at the smallest review size")
-	check(dashboard.center.get_global_rect().end.y < dashboard.status_label.get_global_rect().position.y, "Embedded chart controls must not overlap the footer")
+	check(dashboard.market_detail_scroll.get_global_rect().end.y < dashboard.status_label.get_global_rect().position.y, "Embedded chart controls must not overlap the footer")
 	root.size = Vector2i(2160,1440)
 	await process_frame
 	await process_frame

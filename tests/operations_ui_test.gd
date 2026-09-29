@@ -1,9 +1,11 @@
 extends SceneTree
+const Fixture = preload("res://tests/operation_fixture.gd")
 const Record = preload("res://scripts/operation_record.gd")
 var app: Control
 var checks := 0
 var failures := 0
 func _initialize() -> void:
+	OS.set_environment("PHALANX_ACCOUNT_OFFLINE","1")
 	OS.set_environment("PHALANX_RESEARCH_OFFLINE","1")
 	OS.set_environment("PHALANX_WORKSPACE_PATH",OS.get_environment("TEMP").path_join("phalanx-operation-ui-%d.json" % OS.get_process_id()))
 	call_deferred("run")
@@ -48,7 +50,7 @@ func run() -> void:
 		check(overlay.is_open() and overlay.journal.visible and not overlay.dashboard_host.visible,"Scroll hotspot opens journal at "+str(window_size))
 		check(not app.headquarters.active,"Journal blocks background interactions")
 		var journal: Control = overlay.journal
-		var record := Record.create([18,16,22,8,14],{"title":"긴 작전 이름의 표시 검증 ".repeat(4),"rationale":"읽기 전용 근거","risk":"읽기 전용 위험"})
+		var record := Fixture.create([18,16,22,8,14],{"title":"긴 작전 이름의 표시 검증 ".repeat(4),"rationale":"읽기 전용 근거","risk":"읽기 전용 위험"})
 		var older := record.duplicate(true)
 		older.title = "이전 작전"
 		journal.set_records([older,record])
@@ -63,6 +65,7 @@ func run() -> void:
 		check(not overlay.is_open() and app.mode=="headquarters","Esc closes journal without leaving HQ")
 		await click(app.world_to_view(app.headquarters.table_center))
 		check(overlay.dashboard_host.visible and not journal.visible,"Map still opens analysis after journal")
+		Fixture.install(overlay.dashboard)
 		overlay.dashboard._show_plan()
 		await settle()
 		var dialog: AcceptDialog = overlay.dashboard.dialog

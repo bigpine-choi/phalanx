@@ -1,8 +1,10 @@
 extends SceneTree
+const Fixture = preload("res://tests/operation_fixture.gd")
 var app: Control
 var output: String
 var native := false
 func _initialize() -> void:
+	OS.set_environment("PHALANX_ACCOUNT_OFFLINE","1")
 	OS.set_environment("PHALANX_RESEARCH_OFFLINE","1")
 	OS.set_environment("PHALANX_WORKSPACE_PATH",OS.get_environment("TEMP").path_join("phalanx-operations-review-%d.json" % OS.get_process_id()))
 	call_deferred("run")
@@ -32,6 +34,7 @@ func run() -> void:
 	await hold(1.0)
 	var view: Control = app.dashboard_overlay.dashboard
 	view._select_workspace("portfolio")
+	Fixture.install(view)
 	view._show_plan()
 	await hold()
 	await capture("03-order-draft")
@@ -39,7 +42,7 @@ func run() -> void:
 		print("PHALANX_OPERATIONS_REVIEW: native input ready; isolated profile")
 		return
 	var draft := {"title":"예시 작전 · 현금 여력을 남기는 재배치","rationale":"샘플 포트폴리오를 기준으로 종목별 비중을 점검한다.\n현금 여력을 남겨 다음 판단에 대비한다.","risk":"실제 시세와 연결되지 않은 연습용 계획이다.\n가격 변동과 거래 비용에 따라 결과가 달라질 수 있다."}
-	view.dialog.document.display(preload("res://scripts/operation_record.gd").snapshot(view.targets),draft)
+	view.dialog.document.display(view.simulation_plan,draft)
 	view._operation_draft_changed(draft)
 	await hold()
 	await capture("04-order-filled")
@@ -62,6 +65,7 @@ func run() -> void:
 	await hold(0.6)
 	app._open_dashboard()
 	await hold(0.8)
+	Fixture.install(view)
 	view._show_plan()
 	await hold()
 	await capture("09-order-960")

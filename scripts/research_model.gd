@@ -1,12 +1,13 @@
 extends RefCounted
-## Public research data only. Never used to value or trade the demo account.
+## Public research data; account valuation stays tied to its own observation.
+const Data = preload("res://scripts/market_data.gd")
 const CODES := ["005930","000660","005380","035420","069500"]
 const CORPS := {"005930":"00126380","000660":"00164779","005380":"00164742","035420":"00266961"}
 const IR_ROOT := "https://images.samsung.com/is/content/samsung/assets/global/ir/docs/"
 const KIS_SOURCE := "https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_daily_itemchartprice"
 
 static func parse_kis(payload: Variant, code: String, now: int) -> Dictionary:
-	if not payload is Dictionary or not code in CODES or payload.get("code")!=code or payload.get("provider")!="KIS" or payload.get("currency")!="KRW" or payload.get("market")!="KRX" or payload.get("adjusted")!=true:
+	if not payload is Dictionary or not Data.valid_code(code) or payload.get("code")!=code or payload.get("provider")!="KIS" or payload.get("currency")!="KRW" or payload.get("market")!="KRX" or payload.get("adjusted")!=true:
 		return {}
 	if not numeric(payload.get("fetched_at")) or payload.fetched_at<=0 or payload.fetched_at>now+60:
 		return {}

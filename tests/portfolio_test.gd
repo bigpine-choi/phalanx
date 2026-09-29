@@ -34,8 +34,8 @@ func settle(worker: Node) -> void:
 
 func fixture() -> Dictionary:
 	return {"version":1,"source":"kis_account","currency":"KRW","snapshot_id":"a".repeat(64),"account_masked":"0000****-**","observed_at":"2026-09-29T12:00:00+00:00","positions_value":"2000","summary":{"net_assets":"9000","deposit_total":"7000","securities_evaluation_amount":"2000","profit_loss_total":"100"},"warnings":[],"rows":[
-		{"code":"005930","name":"삼성전자","quantity":"10","sellable":"10","price":"100","value":"1000","profit_loss":"50"},
-		{"code":"000660","name":"SK하이닉스","quantity":"5","sellable":"5","price":"200","value":"1000","profit_loss":"50"}]}
+		{"code":"005930","name":"삼성전자","quantity":"10","sellable":"10","price":"100","value":"1000","profit_loss":"50","stock_weight":"50","price_observed_at":"2026-09-29T12:00:00+00:00"},
+		{"code":"000660","name":"SK하이닉스","quantity":"5","sellable":"5","price":"200","value":"1000","profit_loss":"50","stock_weight":"50","price_observed_at":"2026-09-29T12:00:00+00:00"}]}
 
 func run() -> void:
 	root.gui_embed_subwindows = true
@@ -46,7 +46,7 @@ func run() -> void:
 	await frames()
 	dashboard._select_workspace("portfolio")
 	var panel: Control = dashboard.simulator
-	check(dashboard.live_portfolio_page.visible and not dashboard.portfolio_page.visible and not dashboard.summary_strip.visible,"Live portfolio has no demo account totals")
+	check(dashboard.live_portfolio_page.visible and not dashboard.market_actions.visible,"Live portfolio has no demo account totals")
 	check(not panel.busy and panel.account.is_empty(),"Offline tests cannot auto-query the real account")
 	panel.set_account(fixture())
 	check(panel.rows.size()==2 and panel.budget_input.value==0,"All holdings shown; deposit is never copied to budget")
@@ -65,12 +65,10 @@ func run() -> void:
 	panel.review()
 	await settle(panel.worker)
 	check(panel.result.ai_state=="KEY_MISSING" and not panel.result.plan.is_empty(),"Missing AI key retains simulation")
-	var original_targets: Array = dashboard.targets.duplicate()
-	var original_demo_draft: Dictionary = dashboard.operation_draft.duplicate(true)
 	panel.apply_order()
 	await frames()
-	check(dashboard.dialog.visible and dashboard._order_is_live,"Apply opens the live plan document")
-	check(dashboard.targets==original_targets and dashboard.operation_draft==original_demo_draft,"Applying real plan preserves sample targets and draft")
+	check(dashboard.dialog.visible and dashboard.simulation_plan.source==Record.LIVE_SOURCE,"Apply opens the live plan document")
+	check(not dashboard.simulator.has_signal("sample_requested"),"Sample account entry is removed")
 	check(dashboard.dialog.document.source_label.text.contains("실계좌") and dashboard.dialog.document.source_label.text.contains("가정"),"Document labels real-snapshot simulation and assumed cash")
 	check(not dashboard.save_failed and not dashboard.profile_dirty,"Applied draft persists")
 	var stored := Store.new(directory.path_join("workspace.json"))
@@ -109,7 +107,7 @@ func run() -> void:
 		check(Rect2(Vector2.ZERO,Vector2(dialog.size)).encloses(rendered),"Seal button inside actual mouse bounds %s" % dimensions)
 		dialog.hide()
 	dashboard._select_workspace("sample")
-	check(dashboard.portfolio_page.visible and dashboard.account.visible and not dashboard.live_portfolio_page.visible,"Sample planner remains separate and accessible")
+	check(dashboard.workspace=="portfolio" and dashboard.live_portfolio_page.visible,"Removed sample route cannot open a hidden account")
 	dashboard.queue_free()
 	await frames()
 	for child: String in ["requests"]:

@@ -10,7 +10,6 @@ from phalanx.portfolio.self_financing import (
 )
 
 LIVE_SOURCE = "실계좌 조회 기반 모의 계획 · 실제 주문 미연결"
-DEMO_SOURCE = "가상 계좌 · 샘플 시세 / 실제 주문 미연결"
 
 
 class PlanError(ValueError):
@@ -36,7 +35,7 @@ def simulate(context):
 
 def _simulate(context):
     account = context.get("account", {})
-    if account.get("source") not in {"kis_account", "demo"} or account.get("currency") != "KRW":
+    if account.get("source") != "kis_account" or account.get("currency") != "KRW":
         raise PlanError("INPUT_INVALID")
     rows = account.get("rows")
     targets = context.get("targets")
@@ -125,7 +124,7 @@ def _simulate(context):
         warnings.append("계획상 현금 비중이 5% 미만입니다.")
     if buys > cash:
         warnings.append("모의 매도 대금을 재사용하는 가정입니다. 결제·주문가능금액은 별도 확인이 필요합니다.")
-    plan = {"source":LIVE_SOURCE if account["source"]=="kis_account" else DEMO_SOURCE,
+    plan = {"source":LIVE_SOURCE,
         "base_cash":float(cash),"base_assets":float(nav),"planned_cash":float(remaining),
         "target_total":float(equity*100),"rows":result_rows,
         "snapshot_id":account.get("snapshot_id","demo"),"observed_at":account.get("observed_at","샘플"),
@@ -147,5 +146,5 @@ def review_report(result):
         {"title":"현금과 집중도", "text":f'계획 현금 비중 {result["before_cash_weight"]:.2f}% → {result["after_cash_weight"]:.2f}%. 최대 단일종목 비중 {result["largest_before"]:.2f}% → {result["largest_after"]:.2f}%.',"source_ids":["P"]}]
     return {"code":"PORTFOLIO", "facts":facts,
         "sources":[{"id":"P","label":"사용자가 작성한 모의 배분안","as_of":"요청 시점",
-                    "detail":"실제 잔고 또는 샘플의 비중을 바탕으로 한 가상 변경안. 현금은 사용자 가정. 금액·수량·계좌번호는 제공하지 않음."}],
+                    "detail":"실계좌 조회 비중을 바탕으로 한 모의 변경안. 현금은 사용자 가정. 금액·수량·계좌번호는 제공하지 않음."}],
         "missing":result["warnings"]+["기간 수익률·변동성·상관관계·ETF 내부 구성은 계산하지 않았습니다. 비중 변화만 검토하세요."]}

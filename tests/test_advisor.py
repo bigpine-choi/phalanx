@@ -58,6 +58,20 @@ class AdvisorTests(unittest.TestCase):
         self.assertTrue(any(x["text"].startswith("15.00%") for x in report["facts"]))
         self.assertEqual(report["price_features"]["discovery_run_id"],"godot_snapshot_no_discovery")
 
+    def test_dynamic_security_uses_existing_price_engine(self):
+        c = context()
+        c.update(code="123459", name="검증 종목", financials={})
+        c["quote"]["code"] = "123459"
+        report = build_report(c, NOW)
+        self.assertEqual(report["code"], "123459")
+        self.assertEqual(report["name"], "검증 종목")
+        self.assertNotIn("market", report["price_features"]["symbols"][0]["target"])
+        self.assertTrue(report["price_features"]["symbols"][0]["metrics"])
+        for code in ["../keys", "１２３４５６", "12345", None]:
+            c["code"] = code
+            with self.subTest(code=code), self.assertRaises(ValueError):
+                build_report(c, NOW)
+
     def test_missing_is_not_zero(self):
         report = build_report(context(2), NOW)
         self.assertTrue(any("60관측" in x for x in report["missing"]))
@@ -75,11 +89,19 @@ class AdvisorTests(unittest.TestCase):
             with self.subTest(bad=cases.index(bad)), self.assertRaises(ValueError):
                 build_report(bad,NOW)
 
-    def test_review_keeps_synthetic_provenance(self):
-        c=context();c["mode"]="review";c["plan"]={"source":"가상 계좌 · 샘플 시세", "rows":[dict(code=k,target=10) for k in CODES]}
+    def test_review_only_accepts_live_weights_and_minimizes_account_data(self):
+        c=context();c["mode"]="review"
+        c["plan"]={"source":"실계좌 조회 기반 모의 계획 · 실제 주문 미연결", "observed_at":"2026-09-29T12:00:00+00:00", "rows":[dict(code="005930",name="삼성전자",target=30,quantity=987654,price=123456)]}
         report=build_report(c,NOW)
-        self.assertTrue(any("실계좌 아님" in s["detail"] for s in report["sources"]))
-        self.assertTrue(any("20.0%" in f["text"] for f in report["facts"] if "반도체" in f["title"]))
+        text=json.dumps(report,ensure_ascii=False)
+        self.assertIn("실계좌 기반",text)
+        self.assertIn("30.00%",text)
+        self.assertNotIn("987654",text)
+        self.assertNotIn("123456",text)
+        c["plan"]["source"]="가상 계좌 · 샘플 시세"
+        with self.assertRaises(ValueError): build_report(c,NOW)
+        c["plan"]={}
+        self.assertTrue(any("실계좌 변경안" in m for m in build_report(c,NOW)["missing"]))
 
     def test_key_dpapi_and_preserve_on_blank(self):
         self.assertFalse(api.status()["configured"])

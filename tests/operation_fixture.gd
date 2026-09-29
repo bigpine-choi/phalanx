@@ -1,6 +1,8 @@
 extends RefCounted
-## Synthetic fixtures only. No broker, network, credentials, or orders.
+## Isolated test data only. Never loaded by the game.
 
+const Record = preload("res://scripts/operation_record.gd")
+const SOURCE = Record.SOURCE
 const CASH := 30930000.0
 const STOCKS := [
 	{"code": "005930", "name": "삼성전자", "sector": "반도체 · KOSPI", "price": 72000.0, "change": 1.69, "quantity": 200, "average": 68000.0, "target": 18.0, "score": 82, "thesis": "메모리 업황 회복과 현금 창출력을 관찰합니다.", "risk": "수요 회복 속도와 설비투자 부담을 점검합니다."},
@@ -50,24 +52,35 @@ static func plan(targets: Array) -> Dictionary:
 		rows.append({"name": stock.name, "delta": delta, "amount": absf(delta * stock.price), "target": target, "result_quantity": desired})
 	return {"valid": remaining >= 0.0, "rows": rows, "cash": remaining, "target_total": target_total}
 
-static func history(stock_index: int) -> Array:
-	var stock: Dictionary = STOCKS[stock_index]
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 9500 + stock_index * 917
-	var result: Array = []
-	var price := float(stock.price) * 0.79
-	for i in range(260):
-		var opening := price
-		price *= 1.0008 + rng.randf_range(-0.018, 0.019)
-		result.append({"open": opening, "close": price, "high": maxf(opening, price) * rng.randf_range(1.002, 1.014), "low": minf(opening, price) * rng.randf_range(0.986, 0.998), "volume": rng.randf_range(0.2, 1.0)})
-	var scale_factor := float(stock.price) / float(result[-1].close)
-	for candle in result:
-		for key in ["open", "close", "high", "low"]:
-			candle[key] *= scale_factor
-	result[-2].close = stock.price / (1.0 + stock.change / 100.0)
-	result[-2].high = maxf(result[-2].high, result[-2].close)
-	result[-2].low = minf(result[-2].low, result[-2].close)
-	result[-1].open = result[-2].close
-	result[-1].high = maxf(result[-1].open, stock.price) * 1.008
-	result[-1].low = minf(result[-1].open, stock.price) * 0.992
-	return result
+
+static func snapshot(targets: Array) -> Dictionary:
+	var plan: Dictionary = plan(targets)
+	if not plan.valid:
+		return {}
+	var rows: Array = []
+	for i: int in STOCKS.size():
+		var stock: Dictionary = STOCKS[i]
+		var row: Dictionary = plan.rows[i].duplicate(true)
+		row.code = stock.code
+		row.price = stock.price
+		row.quantity = stock.quantity
+		rows.append(row)
+	return {"source":SOURCE, "base_cash":CASH, "base_assets":total_assets(), "planned_cash":plan.cash, "target_total":plan.target_total, "rows":rows}
+
+static func create(targets: Array, draft: Dictionary) -> Dictionary:
+	return Record.from_snapshot(live_plan(targets),draft)
+
+
+static func live_plan(targets: Array = [18,16,22,8,14]) -> Dictionary:
+	var plan := snapshot(targets)
+	if plan.is_empty(): return {}
+	plan.source = Record.LIVE_SOURCE
+	plan.snapshot_id = "a".repeat(64)
+	plan.observed_at = "2026-09-29T12:00:00+00:00"
+	plan.cash_basis = "사용자 입력 가정 · 주문가능현금 미확인"
+	return plan
+
+static func install(view: Control, target := 20.0) -> void:
+	view.simulation_plan = live_plan([target,16,22,8,14])
+	view._queue_profile_save()
+	view._sync_advisor()

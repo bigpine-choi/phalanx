@@ -1,6 +1,5 @@
 extends RefCounted
-## Immutable, explicitly synthetic plan snapshots. No execution or live quotes.
-const Data := preload("res://scripts/demo_data.gd")
+## Immutable live-account simulation records; old sample records are read-only history.
 const MAX_OPERATIONS := 200
 const MAX_TEXT := 2000
 const SOURCE := "가상 계좌 · 샘플 시세 / 실제 주문 미연결"
@@ -30,25 +29,8 @@ static func valid_targets(value: Variant) -> bool:
 			return false
 	return true
 
-static func snapshot(targets: Array) -> Dictionary:
-	var plan: Dictionary = Data.plan(targets)
-	if not plan.valid:
-		return {}
-	var rows: Array = []
-	for i: int in Data.STOCKS.size():
-		var stock: Dictionary = Data.STOCKS[i]
-		var row: Dictionary = plan.rows[i].duplicate(true)
-		row.code = stock.code
-		row.price = stock.price
-		row.quantity = stock.quantity
-		rows.append(row)
-	return {"source":SOURCE, "base_cash":Data.CASH, "base_assets":Data.total_assets(), "planned_cash":plan.cash, "target_total":plan.target_total, "rows":rows}
-
-static func create(targets: Array, draft: Dictionary) -> Dictionary:
-	return from_snapshot(snapshot(targets),draft)
-
 static func from_snapshot(plan: Dictionary, draft: Dictionary) -> Dictionary:
-	if not valid_draft(draft,true):
+	if plan.get("source") != LIVE_SOURCE or not valid_draft(draft,true):
 		return {}
 	var result := plan.duplicate(true)
 	if result.is_empty():
