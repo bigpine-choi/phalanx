@@ -60,4 +60,3 @@ func run() -> void:
 		return
 	print("MARKET_CATALOG_KOREAN_INPUT_TEST: PASS")
 	quit()
-
