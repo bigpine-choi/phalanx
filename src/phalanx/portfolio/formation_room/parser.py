@@ -11,7 +11,7 @@ import json
 import math
 import re
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, DecimalException, localcontext
 from fractions import Fraction
 from itertools import pairwise
@@ -83,6 +83,12 @@ def _date(value: object, *, nullable: bool = False) -> str | None:
     text = _text(value)
     _require(date.fromisoformat(text).isoformat() == text)
     return text
+
+
+def _instant(value: object) -> datetime:
+    result = datetime.fromisoformat(_text(value))
+    _require(result.tzinfo is not None and result.utcoffset() is not None)
+    return result
 
 
 def _dates(value: object) -> list[str]:
@@ -168,9 +174,71 @@ def _failure(
     return {"code": _text(failure["code"]), "message": _text(failure["message"])}
 
 
+def _source_provenance(
+    prepared: dict[str, object], codes: list[str], selected_at: str
+) -> dict[str, object] | None:
+    """Check the display relationship of either saved selection or replay evidence.
+
+    The file and its reported hashes are not authenticated or recomputed here.
+    """
+    evidence = prepared.get("replay_provenance")
+    selection_sha = prepared["selection_file_sha256"]
+    if evidence is None:
+        _hash(selection_sha)
+        return None
+    _require(selection_sha is None)
+    replay = _object(evidence)
+    _require(
+        set(replay)
+        == {
+            "evidence_kind",
+            "replay_file_sha256",
+            "selection_content_sha256",
+            "read_receipt_file_sha256",
+            "read_receipt_content_sha256",
+            "row_evidence_sha256",
+            "features_sha256",
+            "history_job_id",
+            "as_of",
+            "selected_codes",
+            "decision_at",
+            "replayed_at",
+            "read_completed_at",
+            "local_snapshot_read_before_decision_confirmed",
+            "vendor_release_time_verified",
+            "point_in_time_backtest_guaranteed",
+        }
+    )
+    _require(replay["evidence_kind"] == "recomputed_history_replay_with_local_read_receipt_v1")
+    for name in (
+        "replay_file_sha256",
+        "selection_content_sha256",
+        "read_receipt_file_sha256",
+        "read_receipt_content_sha256",
+        "row_evidence_sha256",
+        "features_sha256",
+    ):
+        _hash(replay[name])
+    job = _text(replay["history_job_id"])
+    _require(re.fullmatch(r"[0-9a-f]{32}", job) is not None)
+    _require(job == prepared["history_job_id"])
+    _require(_date(replay["as_of"]) == selected_at)
+    _require(_codes(replay["selected_codes"]) == codes)
+    read_at = _instant(replay["read_completed_at"])
+    decided_at = _instant(replay["decision_at"])
+    replayed_at = _instant(replay["replayed_at"])
+    _require(read_at <= decided_at <= replayed_at)
+    _require(replay["local_snapshot_read_before_decision_confirmed"] is True)
+    _require(replay["vendor_release_time_verified"] is False)
+    _require(replay["point_in_time_backtest_guaranteed"] is False)
+    return replay
+
+
 def _prepared(
     raw: dict[str, object], codes: list[str], selected_at: str, reference: str | None
-) -> tuple[dict[str, object], list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[
+    dict[str, object], list[dict[str, object]], list[dict[str, object]], dict[str, object] | None
+]:
     prepared = _object(raw["prepared"])
     _require(prepared["schema_version"] == "1")
     _require(prepared["readiness_scope"] == "risk_model_return_matrix_only")
@@ -184,7 +252,7 @@ def _prepared(
     _require(prepared["point_in_time_backtest_guaranteed"] is False)
     _require(prepared["price_basis"] == "adjusted_close_price_return_excluding_dividends")
     _require(prepared["date_policy"] == "strict_observed_window_v1")
-    _hash(prepared["selection_file_sha256"])
+    replay = _source_provenance(prepared, codes, selected_at)
     completion = _object(prepared["selection_completion"])
     _require(_count(completion["selected_count"]) == len(codes))
     requested = _count(completion["requested_top"])
@@ -197,6 +265,7 @@ def _prepared(
     )
     source = _object(prepared["selection_source"])
     _require(_date(source["as_of"]) == selected_at)
+    _require(source["history_job_id"] == prepared["history_job_id"])
     reasons: list[dict[str, object]] = [
         {"code": _text(item["code"]), "message": _text(item["description"])}
         for entry in _list(prepared["reasons"])
@@ -233,7 +302,7 @@ def _prepared(
         )
     _require([symbol["code"] for symbol in symbols] == codes)
     _require(len(set(ordinals)) == len(ordinals))
-    return prepared, symbols, reasons
+    return prepared, symbols, reasons, replay
 
 
 def _matrix_dates(
@@ -350,7 +419,7 @@ def _project(raw: dict[str, object], source_name: str, sha256: str) -> Formation
     selected_at = _text(_date(raw["selection_as_of"]))
     reference = _date(raw["reference_price_date"], nullable=True)
     day = _date(raw["calculation_date"], nullable=True)
-    prepared, symbols, reasons = _prepared(raw, codes, selected_at, reference)
+    prepared, symbols, reasons, replay = _prepared(raw, codes, selected_at, reference)
     ready = _bool(prepared["input_ready"])
     start, end = (_date(prepared[field], nullable=True) for field in ("used_start", "used_end"))
     count = _count(prepared["return_observation_count"])
@@ -359,7 +428,7 @@ def _project(raw: dict[str, object], source_name: str, sha256: str) -> Formation
         _require(start <= end <= selected_at)
     fingerprints: list[dict[str, object]] = []
     for label, value, nullable in (
-        ("선정 파일", prepared["selection_file_sha256"], False),
+        ("선정 파일", prepared["selection_file_sha256"], replay is not None),
         ("가격 창", prepared["price_window_sha256"], True),
         ("입력 준비", prepared["calculation_fingerprint"], True),
         ("위험 입력", raw["risk_input_fingerprint"], True),
@@ -457,6 +526,7 @@ def _project(raw: dict[str, object], source_name: str, sha256: str) -> Formation
         reasons=reasons,
         fingerprints=fingerprints,
         limitations=list(_LIMITATIONS),
+        replay_provenance=replay,
     )
 
 

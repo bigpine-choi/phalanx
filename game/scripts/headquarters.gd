@@ -11,6 +11,7 @@ const CommandPanel = preload("res://scripts/command_panel.gd")
 const Record = preload("res://scripts/operation_record.gd")
 const Order = preload("res://scripts/operation_order.gd")
 const Simulator = preload("res://scripts/portfolio_simulator.gd")
+const ResearchAllocation = preload("res://scripts/research_allocation.gd")
 const MarketCatalog = preload("res://scripts/market_catalog.gd")
 const MarketCatalogPanel = preload("res://scripts/market_catalog_panel.gd")
 const WatchGroups = preload("res://scripts/watchlist_groups.gd")
@@ -59,6 +60,8 @@ var simulator: Control
 var simulation_plan: Dictionary = {}
 var live_operation_draft: Dictionary = {}
 var research_page: ScrollContainer
+var allocation_page: ScrollContainer
+var allocation_view: Control
 var research_buttons: Array[Button] = []
 var research_title: Label
 var research_view: Control
@@ -220,6 +223,7 @@ func _build_ui() -> void:
 	_build_brief()
 	_build_portfolio(workspace_host)
 	_build_research(workspace_host)
+	_build_allocation(workspace_host)
 	var status := _hbox()
 	page.add_child(status)
 	status_label = _label("일봉은 전일까지 · 계좌는 조회 시점 기준 · 자동 시세 갱신 없음",11,T.MUTED)
@@ -270,7 +274,7 @@ func _build_header(page: Node) -> void:
 	brand.add_child(_label("P H A L A N X  /  COMMAND LEDGER",9,T.GOLD,true))
 	var tabs := _hbox(4)
 	header.add_child(tabs)
-	for item: Array in [["Ⅰ  시장","market"],["Ⅱ  포트폴리오","portfolio"],["Ⅲ  리서치","research"]]:
+	for item: Array in [["Ⅰ  시장","market"],["Ⅱ  포트폴리오","portfolio"],["Ⅲ  리서치","research"],["Ⅳ  연구 배분","allocation"]]:
 		var button := _button(item[0],_select_workspace.bind(item[1]))
 		button.name = "Workspace_"+item[1]
 		button.toggle_mode = true
@@ -539,20 +543,26 @@ func _build_research(host: Node) -> void:
 	research_view.context_changed.connect(_render_market)
 	research_view.advisor.append_to_order.connect(_append_advisor)
 
+func _build_allocation(host: Node) -> void:
+	allocation_page = _scroll_page(host,"ResearchAllocationWorkspace")
+	allocation_view = ResearchAllocation.new()
+	allocation_page.add_child(allocation_view)
+
 func _select_workspace(value: String) -> void:
-	if not value in ["market","portfolio","research"]:
+	if not value in ["market","portfolio","research","allocation"]:
 		return
 	flush_profile()
 	workspace = value
 	market_strip.visible = value == "market" and size.y >= 800
 	market_actions.visible = value == "market"
-	data_badge.text = "KIS · READ ONLY" if value=="portfolio" else ("KIS · OFFICIAL IR" if value=="research" else "KIS · OBSERVED")
-	status_label.text = "실계좌 조회  /  배분 변경은 모의 계획" if value=="portfolio" else "일봉은 전일까지 · 계좌는 조회 시점 기준 · 자동 시세 갱신 없음"
+	data_badge.text = "SAVED · RESEARCH" if value=="allocation" else ("KIS · READ ONLY" if value=="portfolio" else ("KIS · OFFICIAL IR" if value=="research" else "KIS · OBSERVED"))
+	status_label.text = "저장된 연구 결과 · 원천 DB 재검증 없음 · 계좌와 주문에 적용 안 함" if value=="allocation" else ("실계좌 조회  /  배분 변경은 모의 계획" if value=="portfolio" else "일봉은 전일까지 · 계좌는 조회 시점 기준 · 자동 시세 갱신 없음")
 	market_page.visible = value == "market"
 	live_portfolio_page.visible = value == "portfolio"
 	research_page.visible = value == "research"
+	allocation_page.visible = value == "allocation"
 	for index: int in workspace_buttons.size():
-		workspace_buttons[index].set_pressed_no_signal(["market","portfolio","research"][index] == value)
+		workspace_buttons[index].set_pressed_no_signal(["market","portfolio","research","allocation"][index] == value)
 	if value == "research":
 		research_view.activate()
 	if value in ["market","portfolio"]:
