@@ -11,6 +11,7 @@ var quote_state := "empty"
 var financial_state := "empty"
 var quote_message := ""
 var financial_message := ""
+var unsupported_reason := ""
 var finance_http: HTTPRequest
 var generation := 0
 var requested_codes := {}
@@ -32,8 +33,11 @@ func _ready() -> void:
 	add_child(kis)
 	kis.completed.connect(_kis_completed)
 
-func select_stock(value: String) -> void:
-	if not Model.Data.valid_code(value) or value==code:
+func select_stock(value: String, chart_unsupported_reason := "") -> void:
+	var reason: String = chart_unsupported_reason
+	if reason.is_empty() and not Model.Data.valid_code(value):
+		reason = "기존 일봉 조회는 영문 대문자·숫자 6자리 국내 종목코드만 지원합니다."
+	if value==code and reason==unsupported_reason:
 		return
 	if quote_state=="loading":
 		# A queued lookup can be superseded. Returning to it must fetch again.
@@ -41,6 +45,16 @@ func select_stock(value: String) -> void:
 	generation += 1
 	finance_http.cancel_request()
 	code = value
+	unsupported_reason = reason
+	if not unsupported_reason.is_empty():
+		quote = {}
+		financials = {}
+		quote_state = "unsupported"
+		financial_state = "unsupported"
+		quote_message = "일봉 조회 미지원 · "+unsupported_reason
+		financial_message = "리서치 자료 미지원 · "+unsupported_reason
+		changed.emit()
+		return
 	quote = memory_quotes.get(code,{})
 	if quote.is_empty():
 		quote = _read_quote_cache(code)
@@ -52,11 +66,11 @@ func select_stock(value: String) -> void:
 	changed.emit()
 
 func activate() -> void:
-	if not requested_codes.has(code):
+	if unsupported_reason.is_empty() and not requested_codes.has(code):
 		refresh()
 
 func refresh() -> void:
-	if not Model.Data.valid_code(code):
+	if not unsupported_reason.is_empty() or not Model.Data.valid_code(code):
 		return
 	if not online:
 		quote_message = "오프라인 · 저장된 일봉" if not quote.is_empty() else "오프라인 · 일봉 자료 없음"
