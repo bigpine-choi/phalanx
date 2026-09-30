@@ -36,6 +36,7 @@ class FormationRoomModel:
     fingerprints: list[dict[str, object]]
     limitations: list[str]
     selection_linked: bool = False
+    replay_provenance: dict[str, object] | None = None
     presentation: FormationRoomPresentation = field(default_factory=FormationRoomPresentation)
 
     def to_payload(self) -> dict[str, object]:
