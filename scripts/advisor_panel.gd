@@ -98,10 +98,17 @@ func set_context(value: Dictionary) -> void:
 	report = {}
 	_clear()
 	heading.text = "Φ  "+str(value.get("name","전략"))+" 참모"
-	status_label.text = "현재 자료로 브리핑을 요청하세요.\n자료·노트·계획을 바꾸면 이전 답변은 초기화됩니다."
+	var conflict: String = str(value.get("identity_conflict",""))
+	status_label.text = "같은 코드의 계좌 종목명("+conflict+")과 카탈로그 종목명이 다릅니다. 종목 식별자를 확인한 뒤 참모를 요청하세요." if not conflict.is_empty() else "현재 자료로 브리핑을 요청하세요.\n자료·노트·계획을 바꾸면 이전 답변은 초기화됩니다."
+	if not conflict.is_empty():
+		for button: Button in buttons:
+			button.disabled = true
 
 func request_report(value: String, use_ai := true) -> void:
 	if context.is_empty() or busy:
+		return
+	if not str(context.get("identity_conflict","")).is_empty():
+		status_label.text = "종목 식별자가 충돌해 참모 요청을 시작하지 않았습니다. 계좌와 카탈로그의 종목명을 확인해주세요."
 		return
 	if context.get("note","").length()>8000:
 		status_label.text = "노트가 8,000자를 넘습니다. 분석할 가설을 줄여주세요. 원본 노트는 유지됩니다."

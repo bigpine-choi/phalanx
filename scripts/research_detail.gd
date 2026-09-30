@@ -208,7 +208,7 @@ func select_security(stock: Dictionary) -> void:
 	title_label.text = stock.name+"  /  종목 분석"
 	nh_button.disabled = not NhModel.valid_code(current_code)
 	nh_status.text = "NH투자증권 현재가는 버튼으로 별도 조회 · KIS 일봉과 기준 시각이 다릅니다."
-	gateway.select_stock(current_code)
+	gateway.select_stock(current_code,str(stock.get("chart_unsupported_reason","")))
 	if is_visible_in_tree(): gateway.activate()
 
 func _fetch_nh() -> void:
@@ -253,9 +253,9 @@ func _set_mode(value: String) -> void:
 func _render() -> void:
 	if not is_instance_valid(chart):
 		return
-	refresh_button.disabled = gateway.quote_state=="loading" or gateway.financial_state=="loading"
+	refresh_button.disabled = gateway.quote_state in ["loading","unsupported"] or gateway.financial_state=="loading"
 	status_label.text = gateway.quote_message
-	status_label.add_theme_color_override("font_color",T.RED if gateway.quote_state in ["error","stale"] else T.MUTED)
+	status_label.add_theme_color_override("font_color",T.RED if gateway.quote_state in ["error","stale","unsupported"] else T.MUTED)
 	var quote: Dictionary = gateway.quote
 	if quote.is_empty():
 		price_label.text = "—"
@@ -278,7 +278,7 @@ func _render() -> void:
 			chart.set_history(candles)
 			current_quote = quote
 	finance_status.text = gateway.financial_message
-	finance_status.add_theme_color_override("font_color",T.RED if gateway.financial_state in ["error","stale"] else T.MUTED)
+	finance_status.add_theme_color_override("font_color",T.RED if gateway.financial_state in ["error","stale","unsupported"] else T.MUTED)
 	var financials: Dictionary = gateway.financials
 	if financials==current_financials and not values_table.get_children().is_empty():
 		return

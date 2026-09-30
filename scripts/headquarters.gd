@@ -11,6 +11,8 @@ const CommandPanel = preload("res://scripts/command_panel.gd")
 const Record = preload("res://scripts/operation_record.gd")
 const Order = preload("res://scripts/operation_order.gd")
 const Simulator = preload("res://scripts/portfolio_simulator.gd")
+const MarketCatalog = preload("res://scripts/market_catalog.gd")
+const MarketCatalogPanel = preload("res://scripts/market_catalog_panel.gd")
 var storage_path := Store.default_path()
 @export var embedded_in_camp := false
 
@@ -82,6 +84,9 @@ var profile_dirty := false
 var save_failed := false
 var operations: Array = []
 var _recording := false
+var catalog: Node
+var catalog_panel: Control
+var catalog_preview_code := ""
 
 func _ready() -> void:
 	if not embedded_in_camp:
@@ -224,6 +229,14 @@ func _build_ui() -> void:
 	add_child(dialog)
 	dialog.draft_changed.connect(_operation_draft_changed)
 	dialog.record_requested.connect(_record_operation)
+	catalog = MarketCatalog.new()
+	catalog.name = "MarketCatalog"
+	add_child(catalog)
+	catalog_panel = MarketCatalogPanel.new()
+	add_child(catalog_panel)
+	catalog_panel.set_catalog(catalog)
+	catalog_panel.set_watched_codes(watchlist_codes)
+	catalog_panel.security_chosen.connect(_catalog_security_chosen)
 	_select_workspace("market")
 
 func _build_header(page: Node) -> void:
@@ -300,16 +313,22 @@ func _build_watchlist() -> void:
 	heading.add_child(all_stocks_button)
 	search = LineEdit.new()
 	search.name = "StockSearch"
-	search.placeholder_text = "보유·관심 종목 검색"
-	search.tooltip_text = "Ctrl+K로 전체 종목 검색 · Enter로 첫 검색 결과 선택"
+	search.placeholder_text = "현재 보유·관심 검색"
+	search.tooltip_text = "Ctrl+K로 현재 목록 검색 · 결과가 없으면 Enter로 시장 전체 검색"
 	search.custom_minimum_size.y = 34
 	search.add_theme_font_size_override("font_size",12)
 	search.text_changed.connect(_filter_stocks)
 	search.text_submitted.connect(_submit_search)
 	box.add_child(search)
+	var catalog_open := _button("시장 전체 검색 ↗",_open_catalog)
+	catalog_open.name = "OpenMarketCatalog"
+	catalog_open.tooltip_text = "저장된 시장 종목 마스터 · ETF와 우선주 포함"
+	catalog_open.add_theme_font_size_override("font_size",11)
+	box.add_child(catalog_open)
 	var scroll := ScrollContainer.new()
 	_expand(scroll,true)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
 	box.add_child(scroll)
 	stock_list = _vbox(5)
 	_expand(stock_list)
@@ -317,7 +336,7 @@ func _build_watchlist() -> void:
 	empty_label = _wrap("검색 결과가 없습니다.",12,T.MUTED)
 	stock_list.add_child(empty_label)
 	_rebuild_stock_buttons()
-	box.add_child(_label("보유 + 관심 · Ctrl+K 검색",10,T.MUTED))
+	box.add_child(_label("현재 목록 · 시장 전체 검색은 위 버튼",10,T.MUTED))
 
 func _rebuild_stock_buttons() -> void:
 	for button: Button in stock_buttons:
@@ -543,7 +562,7 @@ func _filter_stocks(query: String) -> void:
 	for index: int in stock_buttons.size():
 		var stock: Dictionary = securities[index]
 		var query_text := query.strip_edges().to_lower()
-		stock_buttons[index].visible = (not watch_only or stock.code in watchlist_codes or not _position_for(stock.code).is_empty()) if query_text.is_empty() else (stock.name+stock.code).to_lower().contains(query_text)
+		stock_buttons[index].visible = (not watch_only or stock.code in watchlist_codes or stock.has("account_identity_conflict") or not _position_for(stock.code).is_empty()) if query_text.is_empty() else (stock.name+stock.code).to_lower().contains(query_text)
 		if stock_buttons[index].visible:
 			count += 1
 	empty_label.visible = count == 0
@@ -556,6 +575,71 @@ func _submit_search(_text: String) -> void:
 			_select_stock(index)
 			stock_buttons[index].grab_focus()
 			return
+	_open_catalog(search.text)
+
+func _open_catalog(initial_query: String = "") -> void:
+	_select_workspace("market")
+	catalog_panel.set_watched_codes(watchlist_codes)
+	catalog_panel.set_query(initial_query)
+	catalog_panel.open(search)
+
+func _catalog_security_chosen(item: Dictionary, add_to_watchlist: bool) -> void:
+	if not MarketCatalog.can_register(item):
+		catalog_panel.set_feedback(str(item.get("reason","식별자가 충돌하거나 저장 형식에 맞지 않습니다.")))
+		return
+	var code: String = str(item.get("code",""))
+	var name_value: String = str(item.get("name",""))
+	if not Data.valid_code(code) or name_value.is_empty() or name_value.length()>80:
+		catalog_panel.set_feedback("종목 코드 또는 이름이 저장 형식에 맞지 않아 등록할 수 없습니다.")
+		return
+	if add_to_watchlist and code not in watchlist_codes and watchlist_codes.size()>=1000:
+		catalog_panel.set_feedback("관심종목은 최대 1,000개까지 저장할 수 있습니다. 기존 관심종목을 해제한 뒤 다시 시도해주세요.")
+		return
+	var index := _security_index(code)
+	if index>=0:
+		var existing: Dictionary = securities[index]
+		if existing.has("account_identity_conflict"):
+			catalog_panel.set_feedback("같은 종목코드에 카탈로그와 계좌의 종목명이 달라 등록할 수 없습니다. 식별자를 확인해주세요.")
+			return
+		if existing.name!=name_value or (not str(existing.get("market","")).is_empty() and existing.get("market")!=item.get("market")) or (not str(existing.get("kind","")).is_empty() and existing.get("kind")!=item.get("kind")):
+			catalog_panel.set_feedback("같은 종목코드에 다른 이름·시장·종류가 이미 있습니다. 식별자 충돌을 확인한 뒤 다시 시도해주세요.")
+			return
+	if not catalog_preview_code.is_empty() and catalog_preview_code!=code and catalog_preview_code not in watchlist_codes and not _account_contains_code(catalog_preview_code):
+		var preview_index := _security_index(catalog_preview_code)
+		if preview_index>=0:
+			securities.remove_at(preview_index)
+			if preview_index<index:
+				index -= 1
+	catalog_preview_code = ""
+	if index<0:
+		var support: Dictionary = MarketCatalog.chart_support(item)
+		securities.append({"code":code,"name":name_value,"sector":str(item.get("market","KRX"))+" · "+str(item.get("kind","종목")),
+			"market":item.get("market",""),"kind":item.get("kind",""),"source":item.get("source",""),
+			"collected_at":item.get("collected_at",""),"chart_unsupported_reason":"" if bool(support.get("supported",false)) else str(support.get("reason","일봉 조회 미지원"))})
+		index = securities.size()-1
+		if not add_to_watchlist:
+			catalog_preview_code = code
+	_rebuild_stock_buttons()
+	_rebuild_research_buttons()
+	if add_to_watchlist and code not in watchlist_codes:
+		watchlist_codes.append(code)
+		_queue_profile_save()
+		flush_profile()
+	if not add_to_watchlist and code not in watchlist_codes and _position_for(code).is_empty():
+		watch_only = false
+		all_stocks_button.set_pressed_no_signal(true)
+		all_stocks_button.text = "보유·관심"
+	catalog_panel.set_watched_codes(watchlist_codes)
+	search.clear()
+	_filter_stocks("")
+	_select_stock(index)
+	catalog_panel.close()
+	_focus_catalog_stock.call_deferred(code)
+
+func _focus_catalog_stock(code: String) -> void:
+	var index := _security_index(code)
+	if index>=0 and index<stock_buttons.size() and stock_buttons[index].is_inside_tree():
+		stock_buttons[index].grab_focus()
 
 func _set_period(days: int) -> void:
 	chart.set_period(days)
@@ -662,9 +746,12 @@ func _sync_advisor() -> void:
 	if updating or not is_instance_valid(research_view):
 		return
 	var stock: Dictionary = securities[selected]
+	var conflict: String = str(stock.get("account_identity_conflict",""))
+	var matched: bool = research_view.gateway.code==stock.code and conflict.is_empty()
 	research_view.advisor.set_context({"code":stock.code,"name":stock.name,
-		"quote":research_view.gateway.quote.duplicate(true),"financials":research_view.gateway.financials.duplicate(true),
-		"note":notes_by_code.get(stock.code,""),"plan":_advisor_plan(),"draft":live_operation_draft.duplicate(true)})
+		"quote":research_view.gateway.quote.duplicate(true) if matched else {},"financials":research_view.gateway.financials.duplicate(true) if matched else {},
+		"note":notes_by_code.get(stock.code,""),"plan":_advisor_plan() if conflict.is_empty() else {},"draft":live_operation_draft.duplicate(true),
+		"identity_conflict":conflict})
 
 func _advisor_plan() -> Dictionary:
 	if simulation_plan.is_empty(): return {}
@@ -708,6 +795,11 @@ func _responsive() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not is_visible_in_tree() or dialog.visible:
 		return
+	if is_instance_valid(catalog_panel) and catalog_panel.visible:
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode==KEY_ESCAPE:
+			catalog_panel.close()
+			get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.ctrl_pressed and event.keycode == KEY_K:
 		_select_workspace("market")
 		search.grab_focus()
@@ -725,7 +817,17 @@ func _toggle_favorite() -> void:
 	if code in watchlist_codes:
 		watchlist_codes.erase(code)
 	else:
+		if securities[selected].has("account_identity_conflict"):
+			_refresh_favorite()
+			return
+		if watchlist_codes.size()>=1000:
+			_refresh_favorite()
+			return
 		watchlist_codes.append(code)
+		if catalog_preview_code==code:
+			catalog_preview_code = ""
+	if is_instance_valid(catalog_panel):
+		catalog_panel.set_watched_codes(watchlist_codes)
 	_refresh_favorite()
 	_filter_stocks(search.text)
 	_queue_profile_save()
@@ -735,7 +837,8 @@ func _refresh_favorite() -> void:
 	var included: bool = securities[selected].code in watchlist_codes
 	favorite_button.set_pressed_no_signal(included)
 	favorite_button.text = "★ 관심" if included else "☆ 추가"
-	favorite_button.tooltip_text = "관심종목에서 해제" if included else "관심종목에 추가"
+	favorite_button.disabled = not included and (watchlist_codes.size()>=1000 or securities[selected].has("account_identity_conflict"))
+	favorite_button.tooltip_text = "관심종목에서 해제" if included else ("계좌와 카탈로그의 종목명이 달라 등록할 수 없습니다" if securities[selected].has("account_identity_conflict") else ("관심종목 최대 1,000개 · 기존 항목을 해제한 뒤 추가하세요" if favorite_button.disabled else "관심종목에 추가"))
 
 func _queue_profile_save() -> void:
 	profile_dirty = true
@@ -775,27 +878,56 @@ func _security_index(code: String) -> int:
 
 func _position_for(code: String) -> Dictionary:
 	if not is_instance_valid(simulator): return {}
+	var security_index := _security_index(code)
+	if security_index>=0 and securities[security_index].has("account_identity_conflict"):
+		return {}
 	for row: Dictionary in simulator.account.get("rows",[]):
 		if row.code==code: return row
 	return {}
+
+func _account_contains_code(code: String) -> bool:
+	if not is_instance_valid(simulator): return false
+	for row: Dictionary in simulator.account.get("rows",[]):
+		if row.code==code: return true
+	return false
 
 func _account_changed() -> void:
 	var account: Dictionary = simulator.account
 	var snapshot: String = account.get("snapshot_id","")
 	if not account.is_empty() and snapshot!=_seen_snapshot:
 		_seen_snapshot = snapshot
+		var selected_name: String = securities[selected].name
+		var selected_conflict: String = str(securities[selected].get("account_identity_conflict",""))
+		for stock: Dictionary in securities:
+			if stock.has("account_identity_conflict"):
+				stock.erase("account_identity_conflict")
+				stock["chart_unsupported_reason"] = ""
 		for row: Dictionary in account.rows:
 			if not Data.valid_code(row.code): continue
 			var index := _security_index(row.code)
 			if index<0:
 				securities.append({"code":row.code,"name":row.name,"sector":"KRX"})
-			else: securities[index].name = row.name
+			elif (securities[index].has("source") or security_names.has(row.code)) and securities[index].name!=row.name:
+				# A code with conflicting catalogue/account identities cannot inherit a position or quote.
+				securities[index]["account_identity_conflict"] = row.name
+				securities[index]["chart_unsupported_reason"] = "같은 종목코드에 카탈로그와 계좌의 종목명이 달라 일봉 대상을 확정할 수 없습니다."
+			else:
+				securities[index].name = row.name
 		_rebuild_stock_buttons()
 		_rebuild_research_buttons()
 		_filter_stocks(search.text)
 		for i: int in securities.size():
 			stock_buttons[i].set_pressed_no_signal(i==selected)
 			research_buttons[i].set_pressed_no_signal(i==selected)
+		if securities[selected].name!=selected_name or str(securities[selected].get("account_identity_conflict",""))!=selected_conflict:
+			var selected_stock: Dictionary = securities[selected]
+			title_label.text = selected_stock.name
+			sector_label.text = selected_stock.code+"   /   "+selected_stock.sector+"   /   마지막 일봉 종가"
+			updating = true
+			research_view.select_security(selected_stock)
+			updating = false
+			_refresh_favorite()
+			_sync_advisor()
 		# Persist only explicitly watched names; balances remain in memory.
 		_queue_profile_save()
 	account_refresh.disabled = simulator.busy
@@ -816,9 +948,9 @@ func _render_market() -> void:
 	if not is_instance_valid(research_view) or not is_instance_valid(quote_status): return
 	var gateway: Node = research_view.gateway
 	var quote: Dictionary = gateway.quote if gateway.code==securities[selected].code else {}
-	quote_refresh.disabled = gateway.quote_state=="loading"
+	quote_refresh.disabled = gateway.quote_state in ["loading","unsupported"]
 	quote_status.text = gateway.quote_message
-	quote_status.add_theme_color_override("font_color",T.RED if gateway.quote_state in ["stale","error"] else T.MUTED)
+	quote_status.add_theme_color_override("font_color",T.RED if gateway.quote_state in ["stale","error","unsupported"] else T.MUTED)
 	if quote.is_empty():
 		price_label.text = "—"
 		change_label.text = "일봉 자료 없음"
@@ -839,9 +971,12 @@ func _render_market() -> void:
 		var position := _position_for(code)
 		var stored: Dictionary = gateway.memory_quotes.get(code,{})
 		if code==gateway.code: stored = gateway.quote
-		stock_tags[i].text = code+(" · 보유" if not position.is_empty() else "")
+		if securities[i].has("account_identity_conflict"): stored = {}
+		stock_tags[i].text = code+(" · 식별자 확인" if securities[i].has("account_identity_conflict") else (" · 보유" if not position.is_empty() else ""))
 		stock_prices[i].text = Data.money(float(position.price)) if not position.is_empty() else (Data.money(stored.candles[-1].close) if not stored.is_empty() else "—")
 		stock_buttons[i].tooltip_text = securities[i].name+" · "+code
+		if securities[i].has("account_identity_conflict"):
+			stock_buttons[i].tooltip_text += "\n계좌 종목명 "+str(securities[i].account_identity_conflict)+"과 일치하지 않아 연결을 보류합니다."
 		if not position.is_empty(): stock_buttons[i].tooltip_text += "\n잔고 조회가 · "+simulator._time(position.price_observed_at)+(" · 이전 잔고" if simulator.stale else "")
 		elif not stored.is_empty(): stock_buttons[i].tooltip_text += "\n마지막 일봉 종가 · "+stored.as_of
 	_render_position()
@@ -849,6 +984,11 @@ func _render_market() -> void:
 func _render_position() -> void:
 	var position := _position_for(securities[selected].code)
 	position_button.disabled = position.is_empty() or simulator.stale or simulator.busy
+	if securities[selected].has("account_identity_conflict"):
+		position_heading.text = "나의 배치 · 식별자 확인 필요"
+		position_detail.text = "같은 코드의 카탈로그 종목명("+securities[selected].name+")과 계좌 종목명("+str(securities[selected].account_identity_conflict)+")이 다릅니다."
+		position_time.text = "계좌 보유량과 일봉 연결을 보류합니다. 종목 식별자를 확인해주세요."
+		return
 	if simulator.account.is_empty():
 		position_heading.text = "나의 배치 · 계좌 조회 전"
 		position_detail.text = "잔고를 조회하면 수량·평가액·손익·주식 내 비중을 표시합니다."
@@ -871,4 +1011,5 @@ func _open_selected_position() -> void:
 func _open_selected_advisor() -> void:
 	_select_workspace("research")
 	# Opening the advisor does not automatically send data or spend API credit.
-	research_page.ensure_control_visible.call_deferred(research_view.advisor)
+	# Keep the selected security heading, chart and advisor heading together.
+	research_page.set_deferred("scroll_vertical",0)
