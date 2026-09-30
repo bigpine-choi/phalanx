@@ -10,6 +10,32 @@ Windows Godot 4.7.2 프로젝트입니다. 작은 야영지에서 목적지를 �
 
 시장 전체 종목 검색·관심 편입 v1과 2026-09-30 실제 discovery 갱신·F5 검증은 [검색 검증 및 직접 확인 순서](docs/MARKET_CATALOG_SEARCH_VALIDATION.md)를 참고하세요.
 
+**증권사 연결은 KIS와 NH PLUG를 함께 사용하는 방향으로 확장합니다.** 현재 KIS는 계좌·일봉을, NH는 별도 브랜치에서 KRX 현재가 수동 조회를 담당합니다. 아래 NH 통합 범위와 브랜치 상태를 확인하세요.
+
+## NH PLUG 게임 통합 · 2026-09-30
+
+**NH투자증권 PLUG OpenAPI를 KIS에 이어 게임의 추가 증권사 연결로 통합합니다.** 현재 국내주식 KRX 현재가의 수동 조회 코드를 구현했으며, NH 계좌·잔고와 다중 증권사·복수 계좌 분석은 후속 범위입니다.
+
+이 브랜치에는 NH 현재가 조회 코드가 포함되어 있습니다. **관심그룹·종목표와 NH 현재가 기능은 아직 서로 다른 브랜치에 있습니다.**
+
+| 연결 | 구현 범위 |
+| --- | --- |
+| KIS | 기존 실계좌 관측과 KRX 수정주가 일봉. 시장·포트폴리오·리서치에서 공유 |
+| NH PLUG | NH 브랜치의 리서치 **NH 현재가** 버튼 → 선택한 숫자 6자리 국내 종목의 KRX 현재가 별도 표시 |
+| 공통 종목·관심 기록 | 기존 시장 검색·선택·노트 흐름 사용. 관심그룹·종목표와 NH 조회의 통합은 후속 작업 |
+
+NH 조회는 **Godot → WSL Python 어댑터 → 공식 `nhplug` SDK**로 `/krstock/quote/v1/currentPrice`를 호출하며, `market_cd=KRX`를 사용합니다. 키·시크릿은 Godot 프로필에 넣지 않고 WSL의 `~/.nhplug/.env`에서 SDK가 읽습니다. [설정과 연결 범위](docs/NHPLUG_READONLY.md)를 참고하세요.
+
+NH 현재가는 KIS 일봉·계좌 관측과 별도 표시하며, 기존 모의 배분의 가격을 바꾸지 않습니다. 제공자·시장·통화·코드·가격·시각을 검사하고 종목 변경 후 도착한 응답은 반영하지 않습니다. `fetched_at`은 SDK 호출 직전 기록한 시각이며 거래소 체결시각이나 응답 완료시각이 아닙니다. 화면의 ‘수신’ 표기와 이 의미를 맞추는 작업은 남아 있습니다.
+
+현재 NH 연결에는 계좌·잔고·주문, WebSocket 스트리밍, 자동 주기 갱신, NH 일봉 차트가 포함되지 않습니다. 실제 NH 인증정보를 사용한 조회 성공은 저장소 기록으로 확인되지 않았습니다. **코드 구현과 실환경 검증은 구분합니다.**
+
+다음 작업은 관심그룹·종목표와 NH 기능의 한 게임 브랜치 수렴, 실제 NH 조회와 실패 복구 검증, 출처·시장·기준시각 표시 정리입니다. 이후 NH 계좌·잔고와 차트 등 조회 어댑터를 확장하며, 증권사·계좌별 원자료와 조회 상태를 보존하는 공통 화면·분석 구조로 연결합니다. 실제 주문 실행은 별도 후속 범위입니다.
+
+공식 자료: [Namuh PLUG 포털](https://www.nhplug.com/) · [NH투자증권 공식 Python SDK](https://github.com/PLUG-OpenAPI/nhplug-sdk). NH PLUG는 NH투자증권 연결이며, 복수 증권사 통합은 팔랑크스의 별도 개발 목표입니다.
+
+관심그룹·종목표 구현과 검증은 [해당 브랜치 README](https://github.com/bigpine-choi/phalanx/blob/feature/watchlist-groups-table-v1/README.md)를 참고하세요.
+
 ## 현재 개발 초점 · 투자 워크스페이스
 
 사용자 선택은 **예쁜 HTS + 블룸버그 터미널 + AI 참모**입니다. 시장·포트폴리오·리서치를 연결한 투자 화면을 사령부의 목재·청동·양피지 분위기로 구성합니다. 야영지/고정 사령부 흐름을 보존하며, 장소 이동과 지도 펼침에는 장면 전환을 적용했습니다.
@@ -31,8 +57,6 @@ Windows Godot 4.7.2 프로젝트입니다. 작은 야영지에서 목적지를 �
 기존 WSL Ubuntu-24.04의 Phalanx 백엔드를 재사용합니다. 인증 파일은 `/home/hansol/.config/phalanx/credentials.env`, 실행기는 `/home/hansol/projects/phalanx/.venv/bin/python`입니다. 키를 Godot에 입력하거나 복사하지 않습니다. 기존 환경이 실행 가능하면 F5 후 작전 지도를 열면 계좌와 선택한 종목의 일봉을 조회합니다. WSL 실행/인증이 실패해도 저장된 일봉과 노트는 유지됩니다.
 
 환경이 다른 PC는 `PHALANX_KIS_WSL_DISTRO`와 `PHALANX_KIS_WSL_PYTHON`을 지정해야 합니다. 현재 연결은 이 PC의 개발 환경용입니다. 일봉 캐시는 `user://research_cache`, 관심/노트 저장은 기존 경로를 사용합니다.
-
-리서치의 **NH 현재가** 버튼은 NH투자증권 KRX 현재가를 KIS 일봉과 별도로 보여 줍니다. NH 키·시크릿은 게임에 입력하지 않고 WSL의 `~/.nhplug/.env`에서 공식 SDK가 읽습니다. [한 번만 설정하는 방법과 연결 범위](docs/NHPLUG_READONLY.md)를 참고하세요. 주문·계좌 API는 이 연결에서 사용하지 않습니다.
 
 [실데이터 검증·출처·한계](docs/RESEARCH_DATA_VALIDATION.md) · [최종 화면](docs/review/research_data_20260929/review.html)
 
