@@ -132,7 +132,7 @@ func run() -> void:
 		await frames(2)
 		var rect: Rect2 = panel.card.get_global_rect()
 		check(rect.position.x>=0 and rect.position.y>=0 and rect.end.x<=dimensions.x+1 and rect.end.y<=dimensions.y+1 and panel.table.size.y>=210,"Table fits viewport "+str(dimensions))
-	check(dashboard._table_rows().size()==5 and not dashboard._table_rows()[0].has("price"),"Table rows contain metadata and status without invented prices")
+	check(dashboard._table_rows().size()==5 and dashboard._table_rows()[0].price==null,"Table rows contain metadata and status without invented prices")
 	check(find_row(dashboard._table_rows(),"035420").market=="—" and find_row(dashboard._table_rows(),"035420").kind=="—","Unknown market and kind display a missing-data dash")
 	dashboard._select_stock(dashboard._security_index("005930"))
 	dashboard.note_editor.text = "그룹에서 해제해도 남을 노트"
@@ -182,7 +182,7 @@ func run() -> void:
 	dashboard._table_security_selected("005930")
 	var gateway: Node = dashboard.research_view.gateway
 	gateway._kis_completed("005930",gateway.generation,observation("005930"))
-	check(find_row(dashboard._table_rows(),"005930").status=="일봉 조회됨" and not find_row(dashboard._table_rows(),"005930").has("price"),"Viewed row follows the existing selected-code quote state without a price column")
+	check(find_row(dashboard._table_rows(),"005930").status=="일봉 조회됨" and find_row(dashboard._table_rows(),"005930").price==null,"Viewed row follows the existing selected-code daily history without inventing a current price")
 	var conflict_group: String = dashboard.watch_groups.create_group("식별자 검증")
 	dashboard._watch_preferences_changed()
 	# Restored watched names are authoritative when a later account name differs.

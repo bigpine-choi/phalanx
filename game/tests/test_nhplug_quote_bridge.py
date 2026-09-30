@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -18,6 +19,22 @@ spec.loader.exec_module(bridge)
 
 
 class NhQuoteBridgeTest(unittest.TestCase):
+    def test_receipt_clock_runs_after_provider_response(self):
+        events = []
+        received = datetime(2026, 9, 30, 12, 1, tzinfo=UTC)
+
+        def caller(*_):
+            events.append("response")
+            return {"Output_0": {"stck_prpr": "231000"}}
+
+        def clock():
+            events.append("received")
+            return received
+
+        result = bridge.collect("005930", caller, clock=clock)
+        self.assertEqual(events, ["response", "received"])
+        self.assertEqual(result["fetched_at"], int(received.timestamp()))
+
     def test_only_public_allowlisted_price_crosses_boundary(self):
         calls = []
 
@@ -81,7 +98,8 @@ class NhQuoteBridgeTest(unittest.TestCase):
             )
             with patch.object(sys, "argv", ["bridge", "005930", str(output), "123-456-7"]):
                 with patch.dict(sys.modules, {"nhplug": provider}):
-                    self.assertEqual(bridge.main(), 0)
+                    with patch.dict(os.environ, {"PHALANX_NH_OFFLINE": "0"}):
+                        self.assertEqual(bridge.main(), 0)
             raw = output.read_text(encoding="utf-8")
             envelope = json.loads(raw)
             self.assertTrue(envelope["ok"])
@@ -99,10 +117,21 @@ class NhQuoteBridgeTest(unittest.TestCase):
             output = Path(directory) / "nh.json"
             with patch.object(sys, "argv", ["bridge", "005930", str(output), "123-456-7"]):
                 with patch.dict(sys.modules, {"nhplug": SimpleNamespace(call=fail)}):
-                    self.assertEqual(bridge.main(), 1)
+                    with patch.dict(os.environ, {"PHALANX_NH_OFFLINE": "0"}):
+                        self.assertEqual(bridge.main(), 1)
             raw = output.read_text(encoding="utf-8")
             self.assertEqual(json.loads(raw)["error"], "NH_CONFIG_MISSING")
             self.assertNotIn("sensitive-provider-body", raw)
+
+    def test_offline_mode_never_calls_sdk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "nh.json"
+            provider = SimpleNamespace(call=lambda *_: self.fail("provider called"))
+            with patch.object(sys, "argv", ["bridge", "005930", str(output), "123-456-7"]):
+                with patch.dict(sys.modules, {"nhplug": provider}):
+                    with patch.dict(os.environ, {"PHALANX_NH_OFFLINE": "1"}):
+                        self.assertEqual(bridge.main(), 1)
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["error"], "NH_OFFLINE")
 
 
 if __name__ == "__main__":
