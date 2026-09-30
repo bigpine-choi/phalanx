@@ -432,6 +432,10 @@ uv run phalanx candidates select \
 `phalanx candidates replay`를 사용합니다. 시각은 manifest 작성자의 선언이며 개별 가격의 과거
 이용 가능성을 증명하지 않습니다. [판단 시점 재실행 계약](docs/decision-snapshot.md)을 참고하세요.
 
+저장된 일봉 작업을 기준으로 수집 완료 시각과 실제 사용한 가격 행의 해시를 확인하며 재선정하려면
+`phalanx candidates replay-history`를 사용합니다. 이는 로컬 수집 시각 검사이며 과거 시장의
+자료 공개 시각은 증명하지 않습니다. [저장 일봉 재실행 계약](docs/history-replay.md)을 참고하세요.
+
 ## 선정 결과 → 배분 입력 v1
 
 선정 JSON과 지정한 저장 history DB에서 기존 위험모형용 수익률 행렬을 준비합니다. 네트워크·자격증명 접근 없이 선정 순서와 Decimal 값을 보존합니다.
