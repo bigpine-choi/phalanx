@@ -36,6 +36,7 @@ def collect(
     code: str,
     caller: Callable[[str, dict[str, str]], object],
     now: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> dict[str, object]:
     if not valid_code(code):
         raise ValueError("unsupported security")
@@ -44,19 +45,22 @@ def collect(
     response = caller(
         "/krstock/quote/v1/currentPrice", {"iem_cd": code, "market_cd": "KRX"}
     )
-    observed = now if now is not None else datetime.now(UTC)
     if not isinstance(response, dict):
         raise ValueError("invalid NH response")
     output = response.get("Output_0")
     if not isinstance(output, dict):
         raise ValueError("NH quote missing")
+    price = _positive_price(output.get("stck_prpr"))
+    received = clock() if clock is not None else (now or datetime.now(UTC))
+    if received.tzinfo is None or received.utcoffset() is None:
+        raise ValueError("timezone-aware receipt required")
     return {
         "provider": "NHPLUG",
         "code": code,
         "market": "KRX",
         "currency": "KRW",
-        "price": _positive_price(output.get("stck_prpr")),
-        "fetched_at": int(observed.timestamp()),
+        "price": price,
+        "fetched_at": int(received.timestamp()),
     }
 
 
@@ -66,20 +70,23 @@ def main() -> int:
     code, output, request_id = sys.argv[1:]
     if re.fullmatch(r"[0-9-]{3,64}", request_id) is None:
         return 2
-    try:
-        from nhplug import call
+    if os.environ.get("PHALANX_NH_OFFLINE") == "1":
+        result: dict[str, object] = {"ok": False, "error": "NH_OFFLINE"}
+    else:
+        try:
+            from nhplug import call
 
-        result: dict[str, object] = {"ok": True, "payload": collect(code, call)}
-    except ImportError:
-        result = {"ok": False, "error": "NH_SDK_MISSING"}
-    except Exception as error:
-        category = getattr(error, "category", "")
-        result = {
-            "ok": False,
-            "error": "NH_CONFIG_MISSING"
-            if category in ("auth", "config")
-            else "NH_READ_FAILED",
-        }
+            result = {"ok": True, "payload": collect(code, call)}
+        except ImportError:
+            result = {"ok": False, "error": "NH_SDK_MISSING"}
+        except Exception as error:
+            category = getattr(error, "category", "")
+            result = {
+                "ok": False,
+                "error": "NH_CONFIG_MISSING"
+                if category in ("auth", "config")
+                else "NH_READ_FAILED",
+            }
     result.update({"request_id": request_id, "code": code})
     destination = Path(output)
     temporary = destination.with_suffix(destination.suffix + ".pending")

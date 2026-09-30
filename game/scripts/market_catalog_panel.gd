@@ -6,6 +6,7 @@ signal security_chosen(item: Dictionary, add_to_watchlist: bool)
 const T = preload("res://scripts/terminal_theme.gd")
 const Catalog = preload("res://scripts/market_catalog.gd")
 const RESULT_LIMIT := 30
+const QUERY_DELAY := 0.25
 
 var catalog: Node
 var watched_codes: Array = []
@@ -13,6 +14,7 @@ var selected_item: Dictionary = {}
 var previous_focus: Control
 var card: PanelContainer
 var query_edit: LineEdit
+var query_timer: Timer
 var refresh_button: Button
 var status_label: Label
 var count_label: Label
@@ -64,6 +66,11 @@ func _ready() -> void:
 	query_edit.text_changed.connect(_query_changed)
 	query_edit.text_submitted.connect(_submit_query)
 	content.add_child(query_edit)
+	query_timer = Timer.new()
+	query_timer.one_shot = true
+	query_timer.wait_time = QUERY_DELAY
+	query_timer.timeout.connect(_render_pending_query)
+	add_child(query_timer)
 	count_label = _label("",12,T.MUTED)
 	content.add_child(count_label)
 	var columns := HBoxContainer.new()
@@ -138,12 +145,18 @@ func _layout() -> void:
 	card.custom_minimum_size = Vector2(minf(920.0,maxf(500.0,size.x-32.0)),minf(610.0,maxf(450.0,size.y-28.0)))
 
 func set_catalog(value: Node) -> void:
-	if catalog != null and catalog.changed.is_connected(_render):
-		catalog.changed.disconnect(_render)
+	if catalog != null and catalog.changed.is_connected(_catalog_changed):
+		catalog.changed.disconnect(_catalog_changed)
 	catalog = value
 	if catalog != null:
-		catalog.changed.connect(_render)
+		catalog.changed.connect(_catalog_changed)
 	_render()
+
+func _catalog_changed() -> void:
+	if not query_timer.is_stopped() or query_edit.has_ime_text():
+		query_timer.start()
+	else:
+		_render()
 
 func set_watched_codes(codes: Array) -> void:
 	watched_codes = codes.duplicate()
@@ -152,20 +165,31 @@ func set_watched_codes(codes: Array) -> void:
 func open(from_control: Control = null) -> void:
 	previous_focus = from_control
 	show()
+	query_timer.stop()
 	_render()
 	query_edit.grab_focus()
 	query_edit.select_all()
 
 func set_query(value: String) -> void:
+	query_timer.stop()
 	query_edit.text = value
 	set_feedback("")
 	_render()
 
 func _query_changed(_value: String) -> void:
+	# Do not rebuild the result controls from inside the IME text callback.
+	query_timer.start()
+	_show_selected()
+
+func _render_pending_query() -> void:
+	if query_edit.has_ime_text():
+		query_timer.start()
+		return
 	set_feedback("")
 	_render()
 
 func close() -> void:
+	query_timer.stop()
 	hide()
 	if is_instance_valid(previous_focus) and previous_focus.is_visible_in_tree():
 		previous_focus.grab_focus()
@@ -265,15 +289,26 @@ func _show_selected() -> void:
 	if not allowed:
 		detail_support.text += "\n등록 불가  " + str(item.get("reason","식별자 충돌 또는 저장 형식 미지원"))
 	detail_support.add_theme_color_override("font_color",T.RED if not allowed or not bool(support.get("supported",false)) else T.MUTED)
-	add_button.disabled = not allowed or code in watched_codes
+	var query_pending := not query_timer.is_stopped() or query_edit.has_ime_text()
+	add_button.disabled = query_pending or not allowed or code in watched_codes
 	add_button.text = "★ 관심 등록됨" if code in watched_codes else "☆ 관심 추가 · 차트 보기"
-	view_button.disabled = not allowed
+	view_button.disabled = query_pending or not allowed
 
 func _submit_query(_query: String) -> void:
+	if query_edit.has_ime_text():
+		query_edit.apply_ime()
+		query_timer.start()
+		return
+	if not query_timer.is_stopped():
+		query_timer.stop()
+		_render_pending_query()
 	if not selected_item.is_empty():
 		_choose(false)
 
 func _choose(add_to_watchlist: bool) -> void:
+	if not query_timer.is_stopped() or query_edit.has_ime_text():
+		set_feedback("검색어 입력을 마친 뒤 결과를 선택해주세요.")
+		return
 	if selected_item.is_empty() or not Catalog.can_register(selected_item):
 		set_feedback("식별자 충돌 또는 지원하지 않는 저장 코드여서 등록할 수 없습니다.")
 		return

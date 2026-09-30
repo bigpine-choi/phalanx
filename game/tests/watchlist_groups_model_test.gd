@@ -60,7 +60,7 @@ func run() -> void:
 	groups.set_sort("code",false)
 	check(groups.rows_for(rows,watched)[0].code == "005935", "Code sorting direction applies")
 	var old_sort := groups.sort_column
-	groups.set_sort("price",true)
+	groups.set_sort("unsupported_column",true)
 	check(groups.sort_column == old_sort and not groups.message.is_empty(), "Unsupported sort column cannot replace saved preference")
 	groups.remove_code_everywhere("005935")
 	check(groups.get_group(first).codes == ["005930"] and groups.get_group(second).codes.is_empty() and watched.has("005935"), "Global unwatch removes group memberships without mutating watchlist")

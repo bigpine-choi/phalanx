@@ -16,8 +16,10 @@ static func build(securities: Array, account: Dictionary, gateway: Node, catalog
 	for security: Dictionary in securities:
 		var code: String = security.code
 		var metadata: Dictionary = catalogue.get(code, {})
-		var identity_conflict: bool = security.has("account_identity_conflict")
-		if duplicate_codes.has(code) or (not metadata.is_empty() and metadata.get("name") != security.name):
+		var duplicate_identity: bool = duplicate_codes.has(code)
+		var catalog_name_conflict: bool = not metadata.is_empty() and metadata.get("name") != security.name
+		var identity_conflict: bool = security.has("account_identity_conflict") or duplicate_identity or catalog_name_conflict
+		if duplicate_identity or catalog_name_conflict:
 			metadata = {} # Do not attach another identity's descriptive fields.
 		var market: String = str(security.get("market", metadata.get("market", "—")))
 		var kind: String = str(security.get("kind", metadata.get("kind", "—")))
@@ -27,7 +29,11 @@ static func build(securities: Array, account: Dictionary, gateway: Node, catalog
 		if identity_conflict:
 			status = "식별자 확인"
 			reason = "같은 코드의 종목 식별자가 충돌해 연결을 보류합니다."
-			if holdings.has(code):
+			if duplicate_identity:
+				reason += "\n카탈로그에 같은 코드가 중복되거나 충돌로 표시되었습니다."
+			elif catalog_name_conflict:
+				reason += "\n카탈로그 종목명과 현재 종목명이 일치하지 않습니다."
+			if security.has("account_identity_conflict") and holdings.has(code):
 				reason += "\n잔고 종목명: " + str(holdings[code].get("name", "—"))
 		elif is_instance_valid(gateway):
 			var quote: Dictionary = gateway.memory_quotes.get(code, {})
@@ -46,5 +52,7 @@ static func build(securities: Array, account: Dictionary, gateway: Node, catalog
 			reason += "\n잔고 관측 " + str(account.get("observed_at", "—"))
 		rows.append({"code":code,"name":security.name,"market":market if not market.is_empty() else "—",
 			"kind":kind if not kind.is_empty() else "—","held":held,"account_present":holdings.has(code),
-			"identity_conflict":identity_conflict,"status":status,"status_reason":reason})
+			"identity_conflict":identity_conflict,"status":status,"status_reason":reason,
+			"price":null,"quote_source":"","quote_time":"","quote_status":"식별자 확인" if identity_conflict else "미조회",
+			"quote_reason":reason if identity_conflict else ""})
 	return rows

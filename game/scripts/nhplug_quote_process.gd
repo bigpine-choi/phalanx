@@ -20,6 +20,9 @@ func request(code: String, token: int) -> void:
 func _start() -> void:
 	active = pending
 	pending = {}
+	if OS.get_environment("PHALANX_NH_OFFLINE")=="1":
+		_finish({"ok":false,"error":"NH_OFFLINE"})
+		return
 	sequence += 1
 	var identifier := "%d-%d-%d" % [OS.get_process_id(),Time.get_ticks_usec(),sequence]
 	active["request_id"] = identifier
@@ -62,7 +65,7 @@ func _process(_delta: float) -> void:
 			if envelope.get("request_id")==active.request_id and envelope.get("code")==active.code:
 				if envelope.get("ok")==true and envelope.get("payload") is Dictionary:
 					result = {"ok":true,"payload":envelope.payload}
-				elif envelope.get("error") in ["NH_SDK_MISSING","NH_CONFIG_MISSING","NH_READ_FAILED"]:
+				elif envelope.get("error") in ["NH_SDK_MISSING","NH_CONFIG_MISSING","NH_READ_FAILED","NH_OFFLINE"]:
 					result = {"ok":false,"error":envelope.error}
 		file.close()
 	if FileAccess.file_exists(active.file):
