@@ -35,6 +35,7 @@ var position_time: Label
 var position_button: Button
 var _seen_snapshot := ""
 var selected := 0
+var _chart_selection_code := ""
 var stock_buttons: Array[Button] = []
 var period_buttons: Array[Button] = []
 var workspace_buttons: Array[Button] = []
@@ -254,6 +255,9 @@ func _build_ui() -> void:
 	watch_table.open_security.connect(_table_open_security)
 	watch_table.research_requested.connect(_table_open_research)
 	watch_table.catalog_requested.connect(_watch_catalog_requested)
+	watch_table.quotes_refresh_requested.connect(_watch_quotes_requested)
+	watch_table.quotes_cancel_requested.connect(research_view.nh_quotes.cancel)
+	research_view.nh_quotes.changed.connect(_refresh_watch_table)
 	catalog.changed.connect(_refresh_watch_table)
 	_select_workspace("market")
 
@@ -473,7 +477,8 @@ func _build_detail() -> void:
 	average.add_theme_font_size_override("font_size",11)
 	average.toggled.connect(func(value: bool) -> void: chart.show_average=value; chart.queue_redraw())
 	legend.add_child(average)
-	var legend_text := _label("녹색 상승 · 적갈색 하락  /  하단 거래량",10,T.MUTED)
+	var legend_text := _label("휠 확대·축소 · 드래그 이동 · 더블클릭 복원",10,T.MUTED)
+	legend_text.tooltip_text = "녹색 상승 · 적갈색 하락 · 하단 거래량\n휠은 커서 위치를 기준으로 확대·축소합니다."
 	_expand(legend_text)
 	legend_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	legend.add_child(legend_text)
@@ -562,6 +567,9 @@ func _select_workspace(value: String) -> void:
 func _select_stock(index: int) -> void:
 	if index<0 or index>=securities.size(): return
 	flush_profile()
+	if _chart_selection_code != securities[index].code:
+		chart.set_history([])
+	_chart_selection_code = securities[index].code
 	selected = index
 	var stock: Dictionary = securities[index]
 	for i: int in stock_buttons.size():
@@ -665,11 +673,40 @@ func _focus_catalog_stock(code: String) -> void:
 		stock_buttons[index].grab_focus()
 
 func _table_rows() -> Array:
-	return WatchTableData.build(securities, simulator.account, research_view.gateway, catalog.items if is_instance_valid(catalog) else [])
+	var rows: Array = WatchTableData.build(securities, simulator.account, research_view.gateway, catalog.items if is_instance_valid(catalog) else [])
+	for row: Dictionary in rows:
+		if row.get("identity_conflict") == true:
+			row.merge({"price":null,"quote_source":"—","quote_time":"—","quote_status":"식별자 확인","quote_reason":"종목 식별자가 충돌해 NH 현재가 연결을 보류합니다."},true)
+		else:
+			row.merge(research_view.nh_quotes.row_fields(row.code),true)
+	return rows
 
 func _refresh_watch_table(force := false) -> void:
-	if is_instance_valid(watch_table) and (watch_table.visible or force) and is_instance_valid(research_view):
-		watch_table.set_rows(_table_rows(), watchlist_codes, securities[selected].code)
+	if not is_instance_valid(watch_table) or not is_instance_valid(research_view):
+		return
+	var rows := _table_rows()
+	var previous_reason: String = research_view.gateway.unsupported_reason
+	for row: Dictionary in rows:
+		if row.code == securities[selected].code:
+			research_view.set_identity_conflict(row.get("identity_conflict") == true)
+			break
+	if research_view.gateway.unsupported_reason != previous_reason:
+		rows = _table_rows()
+	if watch_table.visible or force:
+		watch_table.set_rows(rows, watchlist_codes, securities[selected].code)
+		watch_table.set_quote_progress(research_view.nh_quotes.busy, research_view.nh_quotes.summary)
+
+func _watch_quotes_requested(codes: Array) -> void:
+	# Re-check the current group and identity at the integration boundary.
+	var allowed := {}
+	for row: Dictionary in watch_groups.rows_for(_table_rows(), watchlist_codes):
+		if row.get("identity_conflict") != true:
+			allowed[row.code] = true
+	var requested: Array = []
+	for code: Variant in codes:
+		if code is String and allowed.has(code):
+			requested.append(code)
+	research_view.nh_quotes.refresh(requested)
 
 func _open_watch_table() -> void:
 	_select_workspace("market")

@@ -1,5 +1,5 @@
 extends Control
-## Scrollable watchlist and holdings table. Prices remain in the market chart.
+## Scrollable watchlist and holdings table with separate observed NH quotes.
 
 signal preferences_changed
 signal membership_requested(group_id: String, code: String, add: bool)
@@ -7,10 +7,15 @@ signal security_selected(code: String)
 signal open_security(code: String)
 signal research_requested(code: String)
 signal catalog_requested
+signal quotes_refresh_requested(codes: Array)
+signal quotes_cancel_requested
 
 const T = preload("res://scripts/terminal_theme.gd")
-const COLUMNS := ["name", "code", "market", "kind", "held", "status"]
-const TITLES := ["종목명", "코드", "시장", "종류", "보유", "조회 상태"]
+const Data = preload("res://scripts/market_data.gd")
+const NhModel = preload("res://scripts/nhplug_quote_model.gd")
+const QUOTE_LIMIT := 20
+const COLUMNS := ["name", "code", "market", "kind", "held", "status", "price", "quote_source", "quote_time", "quote_status"]
+const TITLES := ["종목명", "코드", "시장", "종류", "보유", "일봉 상태", "현재가", "출처", "수신 시각 KST", "시세 상태"]
 
 var model: RefCounted
 var source_rows: Array = []
@@ -18,6 +23,10 @@ var watched_codes: Array = []
 var selected_code := ""
 var previous_focus: Control
 var visible_rows := {}
+var visible_order: Array[String] = []
+var quote_busy := false
+var _quote_cancel_sent := false
+var _active_scope := ""
 var _rendering := false
 var _render_generation := 0
 var _selection_generation := 0
@@ -35,6 +44,9 @@ var confirm_label: Label
 var filter_edit: LineEdit
 var table: Tree
 var count_label: Label
+var quotes_refresh_button: Button
+var quotes_cancel_button: Button
+var quote_progress_label: Label
 var selected_label: Label
 var target_picker: OptionButton
 var add_button: Button
@@ -70,7 +82,7 @@ func _ready() -> void:
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(heading)
 	header.add_child(_button("닫기  Esc", close, "CloseWatchlistTable"))
-	content.add_child(_label("관심종목과 보유종목을 그룹별로 살펴봅니다. 가격은 선택한 종목의 시장 차트에서 확인하세요.", 12, T.MUTED))
+	content.add_child(_label("NH 현재가는 요청한 종목만 별도 관측합니다. KIS 일봉·잔고 가격과 기준 시각이 다릅니다.", 12, T.MUTED))
 
 	var group_bar := HBoxContainer.new()
 	group_bar.add_theme_constant_override("separation", 7)
@@ -121,6 +133,17 @@ func _ready() -> void:
 	count_label = _label("", 12, T.MUTED)
 	count_label.custom_minimum_size.x = 210
 	filter_bar.add_child(count_label)
+	var quote_bar := HBoxContainer.new()
+	quote_bar.add_theme_constant_override("separation", 8)
+	content.add_child(quote_bar)
+	quotes_refresh_button = _button("표시 종목 시세 갱신 · 최대 20", _request_quotes_refresh, "RefreshVisibleQuotes")
+	quote_bar.add_child(quotes_refresh_button)
+	quotes_cancel_button = _button("갱신 중단", _request_quotes_cancel, "CancelVisibleQuotes")
+	quote_bar.add_child(quotes_cancel_button)
+	quote_progress_label = _label("처음 표시된 조회 가능 종목 최대 20개를 수동으로 갱신합니다.", 11, T.MUTED)
+	quote_progress_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	quote_progress_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	quote_bar.add_child(quote_progress_label)
 
 	table = Tree.new()
 	table.name = "WatchlistTree"
@@ -134,8 +157,8 @@ func _ready() -> void:
 	table.add_theme_stylebox_override("panel", T.style(T.INSET, T.BORDER, 2, 5))
 	for column: int in COLUMNS.size():
 		table.set_column_title(column, TITLES[column])
-		table.set_column_expand(column, column == 0 or column == 5)
-		table.set_column_custom_minimum_width(column, [210, 90, 82, 136, 90, 245][column])
+		table.set_column_expand(column, column in [0, 5, 9])
+		table.set_column_custom_minimum_width(column, [165, 76, 65, 70, 55, 130, 90, 90, 145, 110][column])
 		table.set_column_expand_ratio(column, 3 if column == 0 else 2)
 	table.column_title_clicked.connect(_column_clicked)
 	table.item_selected.connect(_tree_selected)
@@ -252,6 +275,7 @@ func open(from_control: Control = null) -> void:
 
 
 func close() -> void:
+	_request_quotes_cancel()
 	_cancel_delete_group()
 	if not _pending_selection_code.is_empty():
 		_pending_selection_code = ""
@@ -286,9 +310,61 @@ func set_feedback(value: String, is_error := true) -> void:
 	feedback_label.add_theme_color_override("font_color", T.RED if is_error else T.ACCENT)
 
 
+func set_quote_progress(busy: bool, summary: String) -> void:
+	quote_busy = busy
+	if not busy:
+		_quote_cancel_sent = false
+	if quote_progress_label != null:
+		quote_progress_label.text = summary if not summary.is_empty() else "처음 표시된 조회 가능 종목 최대 20개를 수동으로 갱신합니다."
+	_update_quote_controls()
+
+
+func _quote_targets() -> Array:
+	var codes: Array = []
+	for code: String in visible_order:
+		var row: Dictionary = visible_rows.get(code, {})
+		if row.get("identity_conflict") == true or not NhModel.valid_code(code):
+			continue
+		codes.append(code)
+		if codes.size() >= QUOTE_LIMIT:
+			break
+	return codes
+
+
+func _update_quote_controls() -> void:
+	if quotes_refresh_button == null:
+		return
+	quotes_refresh_button.disabled = quote_busy or _quote_targets().is_empty()
+	quotes_cancel_button.disabled = not quote_busy or _quote_cancel_sent
+
+
+func _request_quotes_refresh() -> void:
+	if quote_busy:
+		return
+	var codes: Array = _quote_targets()
+	if codes.is_empty():
+		set_quote_progress(false, "현재 목록에 NH 현재가를 조회할 수 있는 종목이 없습니다.")
+		return
+	set_quote_progress(true, "%d개 종목 시세 갱신 요청 중…" % codes.size())
+	quotes_refresh_requested.emit(codes)
+
+
+func _request_quotes_cancel() -> void:
+	if not quote_busy or _quote_cancel_sent:
+		return
+	_quote_cancel_sent = true
+	if quote_progress_label != null:
+		quote_progress_label.text = "시세 갱신 중단 요청 중…"
+	_update_quote_controls()
+	quotes_cancel_requested.emit()
+
+
 func _render_all() -> void:
 	if scope_picker == null or model == null:
 		return
+	if not _active_scope.is_empty() and _active_scope != model.selected_group:
+		_request_quotes_cancel()
+	_active_scope = model.selected_group
 	_render_group_controls()
 	_render_rows()
 
@@ -346,6 +422,7 @@ func _render_rows() -> void:
 	_rendering = true
 	_render_generation += 1
 	visible_rows.clear()
+	visible_order.clear()
 	table.clear()
 	var root := table.create_item()
 	var rows: Array = model.rows_for(source_rows, watched_codes) if model != null else []
@@ -358,19 +435,22 @@ func _render_rows() -> void:
 		if code.is_empty():
 			continue
 		visible_rows[code] = row
+		visible_order.append(code)
 		var item := table.create_item(root)
 		item.set_metadata(0, code)
 		var member_names := _membership_names(code)
 		var status := _cell(row, "status")
 		var held_text := "확인 필요" if row.get("identity_conflict") == true and row.get("account_present") == true else ("보유" if bool(row.get("held", false)) else "—")
 		for column: int in COLUMNS.size():
-			var value := status if column == 5 else held_text if column == 4 else _cell(row, COLUMNS[column])
+			var value := _table_cell(row, column, status, held_text)
 			item.set_text(column, value)
 			item.set_selectable(column, true)
 			item.set_tooltip_text(column, _row_tooltip(row, member_names))
 		item.set_custom_color(0, T.TEXT)
 		if held_text != "—":
 			item.set_custom_color(4, T.RED if held_text == "확인 필요" else T.ACCENT)
+		if row.get("identity_conflict") == true or str(row.get("quote_status", "")).contains("실패"):
+			item.set_custom_color(9, T.RED)
 		if code == selected_code:
 			selected_item = item
 	if selected_item != null:
@@ -386,6 +466,7 @@ func _render_rows() -> void:
 		table.set_column_title(column, title)
 	_rendering = false
 	_update_selected_controls()
+	_update_quote_controls()
 
 
 func _restore_scroll_anchor(code: String, generation: int) -> void:
@@ -407,6 +488,22 @@ func _cell(row: Dictionary, key: String) -> String:
 	return text_value if not text_value.is_empty() else "—"
 
 
+func _table_cell(row: Dictionary, column: int, daily_status: String, held_text: String) -> String:
+	if column == 4:
+		return held_text
+	if column == 5:
+		return daily_status
+	if column >= 6 and row.get("identity_conflict") == true:
+		return "식별자 확인" if column == 9 else "—"
+	if column == 6:
+		var price: Variant = row.get("price")
+		return Data.money(float(price)) + "원" if (price is int or price is float) and float(price) > 0.0 else "—"
+	if column == 7:
+		var source: String = _cell(row, "quote_source")
+		return "NH · KRX" if source in ["NHPLUG", "NH투자증권 NHPLUG", "NH투자증권 NHPLUG · KRX"] else source
+	return _cell(row, COLUMNS[column])
+
+
 func _membership_names(code: String) -> Array:
 	var names: Array = []
 	if model == null:
@@ -421,6 +518,9 @@ func _row_tooltip(row: Dictionary, names: Array) -> String:
 	var result := "%s · %s\n시장 %s · 종류 %s\n상태 %s" % [_cell(row, "name"), _cell(row, "code"), _cell(row, "market"), _cell(row, "kind"), _cell(row, "status")]
 	if row.get("status_reason") is String and not str(row.status_reason).is_empty():
 		result += "\n" + str(row.status_reason)
+	result += "\n현재가 %s · 출처 %s · 수신 시각 KST %s · 시세 %s" % [_table_cell(row, 6, "", ""), _cell(row, "quote_source"), _cell(row, "quote_time"), _table_cell(row, 9, "", "")]
+	if row.get("quote_reason") is String and not str(row.quote_reason).is_empty():
+		result += "\n" + str(row.quote_reason)
 	result += "\n포함 그룹: " + (", ".join(names) if not names.is_empty() else "없음")
 	return result
 

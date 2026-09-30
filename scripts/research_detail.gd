@@ -6,6 +6,8 @@ const CommandPanel = preload("res://scripts/command_panel.gd")
 const Data = preload("res://scripts/market_data.gd")
 const Model = preload("res://scripts/research_model.gd")
 const Gateway = preload("res://scripts/research_gateway.gd")
+const NhQuotes = preload("res://scripts/watchlist_quote_gateway.gd")
+const NhModel = preload("res://scripts/nhplug_quote_model.gd")
 const Chart = preload("res://scripts/price_chart.gd")
 const Trend = preload("res://scripts/financial_trend.gd")
 const Advisor = preload("res://scripts/advisor_panel.gd")
@@ -13,11 +15,14 @@ var advisor: PanelContainer
 var right_column: VBoxContainer
 var finance_panel: PanelContainer
 var gateway: Node
+var nh_quotes: Node
 var title_label: Label
 var price_label: Label
 var change_label: Label
 var status_label: Label
 var source_label: Label
+var nh_status: Label
+var nh_button: Button
 var finance_status: Label
 var finance_heading: Label
 var metrics: Array[Label] = []
@@ -35,6 +40,8 @@ var mode_buttons: Array[Button] = []
 var current_code := ""
 var current_quote: Dictionary = {}
 var current_financials: Dictionary = {}
+var nh_block_reason := ""
+var selection_chart_reason := ""
 
 func _ready() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -43,6 +50,10 @@ func _ready() -> void:
 	add_child(gateway)
 	gateway.changed.connect(_render)
 	gateway.changed.connect(func() -> void: context_changed.emit())
+	if nh_quotes == null:
+		nh_quotes = NhQuotes.new()
+	add_child(nh_quotes)
+	nh_quotes.changed.connect(_render_nh)
 	_build()
 	resized.connect(_responsive)
 	_responsive.call_deferred()
@@ -85,6 +96,8 @@ func _build() -> void:
 	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	heading.add_child(title_label)
 	heading.add_child(_label("KIS RESEARCH  /  KRW",11,T.GOLD))
+	nh_button = _button("NH 현재가",_fetch_nh)
+	heading.add_child(nh_button)
 	refresh_button = _button("새로고침",gateway.refresh)
 	heading.add_child(refresh_button)
 	var quote_row := HBoxContainer.new()
@@ -98,6 +111,8 @@ func _build() -> void:
 	add_child(status_label)
 	source_label = _label("",11,T.MUTED,true)
 	add_child(source_label)
+	nh_status = _label("NH투자증권 현재가는 버튼으로 별도 조회 · 키는 WSL 설정 파일에서 읽습니다.",11,T.MUTED,true)
+	add_child(nh_status)
 	main_columns = BoxContainer.new()
 	main_columns.add_theme_constant_override("separation",12)
 	add_child(main_columns)
@@ -131,7 +146,7 @@ func _build() -> void:
 	price_box.add_child(chart)
 	# PriceChart sets a general minimum in _ready; research uses a taller plot.
 	chart.custom_minimum_size.y = 230
-	price_box.add_child(_label("황토색 20거래일 평균  ·  하단 거래량  ·  전일까지의 일봉 · 배당 포함 수익률 아님",10,T.MUTED,true))
+	price_box.add_child(_label("황토색 20거래일 평균 · 하단 거래량 · 전일까지의 일봉 · 배당 포함 수익률 아님\n휠 확대·축소 · 드래그 이동 · 더블클릭으로 선택 기간 복원",10,T.MUTED,true))
 	finance_panel = _panel()
 	left.add_child(finance_panel)
 	var finance := _box(9)
@@ -189,10 +204,45 @@ func select_stock(index: int) -> void:
 	select_security(Data.STOCKS[index])
 
 func select_security(stock: Dictionary) -> void:
+	if current_code != stock.code:
+		chart.set_history([])
 	current_code = stock.code
+	selection_chart_reason = str(stock.get("chart_unsupported_reason",""))
 	title_label.text = stock.name+"  /  종목 분석"
-	gateway.select_stock(current_code,str(stock.get("chart_unsupported_reason","")))
+	nh_block_reason = "종목 식별자가 충돌해 NH 조회를 보류합니다." if stock.has("account_identity_conflict") else ""
+	_render_nh()
+	gateway.select_stock(current_code,selection_chart_reason)
 	if is_visible_in_tree(): gateway.activate()
+
+func _fetch_nh() -> void:
+	if not NhModel.valid_code(current_code) or not nh_block_reason.is_empty() or nh_quotes.busy:
+		return
+	nh_quotes.refresh([current_code])
+
+func set_identity_conflict(conflict: bool) -> void:
+	nh_block_reason = "종목 식별자가 충돌해 NH 조회를 보류합니다." if conflict else ""
+	var reason := "종목 식별자가 충돌해 시세·일봉 연결을 보류합니다." if conflict else selection_chart_reason
+	if gateway.unsupported_reason != reason:
+		gateway.select_stock(current_code,reason)
+		if not conflict and is_visible_in_tree():
+			gateway.activate()
+	_render_nh()
+
+func _render_nh() -> void:
+	if nh_status == null or not is_instance_valid(nh_quotes):
+		return
+	nh_button.disabled = nh_quotes.busy or not NhModel.valid_code(current_code) or not nh_block_reason.is_empty()
+	if not nh_block_reason.is_empty():
+		nh_status.text = nh_block_reason
+		return
+	var fields: Dictionary = nh_quotes.row_fields(current_code)
+	var quote: Dictionary = nh_quotes.quote_for(current_code)
+	var state: String = str(fields.get("quote_status", "미조회"))
+	if not quote.is_empty():
+		nh_status.text = "NH투자증권 KRX 현재가 %s 원 · 수신 %s KST · %s · KIS 일봉과 별도" % [Data.money(quote.price), fields.get("quote_time", "—"), state]
+	else:
+		nh_status.text = "NH투자증권 KRX · %s · %s" % [state, fields.get("quote_reason", "버튼으로 현재가를 조회하세요.")]
+	nh_status.tooltip_text = str(fields.get("quote_reason", ""))
 
 func activate() -> void:
 	gateway.activate()

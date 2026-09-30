@@ -6,7 +6,7 @@ const Data = preload("res://scripts/market_data.gd")
 const MAX_GROUPS := 32
 const MAX_MEMBERS := 1000
 const MAX_NAME_LENGTH := 40
-const SORT_COLUMNS := ["name", "code", "market", "kind", "held", "status"]
+const SORT_COLUMNS := ["name", "code", "market", "kind", "held", "status", "price", "quote_source", "quote_time", "quote_status"]
 
 var groups: Array = []
 var selected_group := "all"
@@ -237,14 +237,17 @@ func _row_less(left: Dictionary, right: Dictionary) -> bool:
 	var b: Dictionary = right.row
 	var a_value: Variant = a.get(sort_column)
 	var b_value: Variant = b.get(sort_column)
-	var a_unknown := _unknown(a_value)
-	var b_unknown := _unknown(b_value)
+	var a_unknown := _sort_unknown(a_value)
+	var b_unknown := _sort_unknown(b_value)
 	if a_unknown != b_unknown:
 		return not a_unknown
 	if not a_unknown:
 		if sort_column == "held":
 			if a_value != b_value:
 				return (not a_value and b_value) if sort_ascending else (a_value and not b_value)
+		elif sort_column == "price":
+			if a_value != b_value:
+				return float(a_value) < float(b_value) if sort_ascending else float(a_value) > float(b_value)
 		else:
 			var a_text := str(a_value).to_lower()
 			var b_text := str(b_value).to_lower()
@@ -258,3 +261,8 @@ func _row_less(left: Dictionary, right: Dictionary) -> bool:
 
 static func _unknown(value: Variant) -> bool:
 	return value == null or (value is String and value.strip_edges() in ["", "—"])
+
+func _sort_unknown(value: Variant) -> bool:
+	if sort_column == "price":
+		return not (value is int or value is float) or float(value) <= 0.0
+	return _unknown(value)
