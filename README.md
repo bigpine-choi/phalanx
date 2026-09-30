@@ -6,19 +6,18 @@ Phalanx는 **투자 터미널과 마케도니아 사령부 게임을 연결하�
 
 ## 저장소 구성과 현재 구현 위치 · 2026-09-30
 
-이 저장소의 기본 브랜치 `main`은 Python 금융 백엔드입니다. Godot 게임은 별도 이력의 기능 브랜치에서 개발하고 있으며, 아래 기능이 모두 `main`에 들어 있는 것은 아닙니다.
-
-| 구성 | 원격 브랜치 | 현재 포함 범위 |
+| 구성 | 위치 | 현재 포함 범위 |
 | --- | --- | --- |
-| Python 금융 백엔드 | [`main`](https://github.com/bigpine-choi/phalanx/tree/main) | KIS 조회·스냅샷, 시장 후보 발굴, 일봉 저장, 종목 선정·배분 연구, 성과·원장 및 오프라인 편성실 |
-| Godot 관심그룹·종목표 | [`feature/watchlist-groups-table-v1`](https://github.com/bigpine-choi/phalanx/blob/feature/watchlist-groups-table-v1/README.md) | 야영지·사령부, 시장 검색, 관심그룹·6열 종목표, KIS 차트·계좌, 노트·참모·모의 비중 계획 |
-| Godot NH 현재가 | [`feature/nhplug-readonly-quote`](https://github.com/bigpine-choi/phalanx/blob/feature/nhplug-readonly-quote/README.md) | 시장 검색과 NH KRX 현재가 연결. 관심그룹·종목표 변경은 아직 미포함 |
+| Python 금융 백엔드 | 저장소 루트 `src/`, `tests/` | KIS 조회·스냅샷, 시장 후보 발굴, 일봉 저장, 종목 선정·배분 연구, 성과·원장 및 오프라인 편성실 |
+| Windows Godot 게임 | [`game/`](game/README.md) | 야영지·사령부, 시장 검색, 관심그룹·종목표, KIS 차트·계좌, 노트·참모·모의 비중 계획, NH KRX 현재가 |
 
-**관심그룹 브랜치와 NH 브랜치는 아직 기능 통합 전입니다.** 각 실행·설정 안내는 해당 브랜치의 README를 따릅니다. 제품 흐름과 데이터 출처는 [게임 공식 백서](https://github.com/bigpine-choi/phalanx/blob/feature/watchlist-groups-table-v1/docs/PHALANX_WHITEPAPER.md)를 참고하세요. 백서의 NH ‘로컬 추가 작업’ 표현은 작성 당시 기록이며, 현재 코드는 위 NH 원격 브랜치에 보관되어 있습니다.
+게임의 기존 브랜치는 별도 Git 이력에서 개발되었다. 이 통합본은 커밋된 게임 기능을 `game/`에 모으고 Python 엔진은 루트에 유지한다. 다른 작업 복사본의 미커밋 후속 변경은 포함하지 않았다. 제품 흐름과 데이터 출처는 [게임 공식 백서](game/docs/PHALANX_WHITEPAPER.md), 다음 개발 순서와 동시 작업 기준은 [개발 계획](docs/development-plan.md)을 따른다.
+
+`game/`은 현재 실행 가능한 Godot 시제품이다. 장기 UE5 사령부 방향은 [별도 Draft PR #26](https://github.com/bigpine-choi/phalanx/pull/26)에서 검토 중이며, UE5 실행·연결 검증은 아직 완료되지 않았다.
 
 ## NH PLUG 게임 통합
 
-현재 NH 브랜치에서는 리서치의 **NH 현재가** 버튼으로 선택한 숫자 6자리 국내 종목의 KRX 현재가를 조회합니다. 연결은 **Godot → WSL Python 어댑터 → 공식 `nhplug` SDK → NH투자증권** 순서입니다. KIS 일봉과 별도로 표시하며, KIS 계좌 관측이나 모의 배분 가격을 NH 현재가로 덮어쓰지 않습니다.
+게임 리서치의 **NH 현재가** 버튼은 선택한 숫자 6자리 국내 종목의 KRX 현재가를 조회합니다. 연결은 **Godot → WSL Python 어댑터 → 공식 `nhplug` SDK → NH투자증권** 순서입니다. KIS 일봉과 별도로 표시하며, KIS 계좌 관측이나 모의 배분 가격을 NH 현재가로 덮어쓰지 않습니다.
 
 | 데이터 | 현재 사용 경로 |
 | --- | --- |
@@ -26,15 +25,13 @@ Phalanx는 **투자 터미널과 마케도니아 사령부 게임을 연결하�
 | 계좌·잔고 및 수정주가 일봉 | 기존 KIS Python 조회 → Godot 시장·포트폴리오·리서치 |
 | NH 국내주식 현재가 | NH PLUG `/krstock/quote/v1/currentPrice`, `market_cd=KRX` → 리서치 별도 표시 |
 
-키·시크릿은 게임에 입력하지 않고 WSL의 SDK 설정에서 읽습니다. [NH 설정과 연결 범위](https://github.com/bigpine-choi/phalanx/blob/feature/nhplug-readonly-quote/docs/NHPLUG_READONLY.md)를 참고하세요. 현재 NH 연결에는 계좌·잔고·주문, 자동 주기 갱신, WebSocket 스트리밍, NH 일봉 차트가 포함되지 않습니다. 실제 NH 인증정보를 사용한 조회 성공은 저장소 기록으로 확인되지 않았습니다. 코드 반영과 실환경 검증을 구분합니다.
-
-다음 통합 작업은 관심그룹·종목표와 NH 현재가의 한 게임 브랜치 수렴, 실제 NH 조회 검증, 출처·시장·기준시각 표시의 정합성 확인입니다. 이후 NH 계좌·잔고와 차트 등 조회 어댑터를 확장하고, 증권사·계좌별 원자료와 조회 상태를 보존하는 공통 화면·분석 구조로 연결합니다. 실제 주문 실행은 별도 후속 범위입니다.
+키·시크릿은 게임에 입력하지 않고 WSL의 SDK 설정에서 읽습니다. [NH 설정과 연결 범위](game/docs/NHPLUG_READONLY.md)를 참고하세요. 현재 NH 연결에는 계좌·잔고·주문, 자동 주기 갱신, WebSocket 스트리밍, NH 일봉 차트가 포함되지 않습니다. 사용자가 실제 키로 공식 SDK 현재가와 Windows→WSL 연결 응답을 확인했다. 게임 창에서 버튼 조작과 장애 복구는 별도로 확인할 항목이다.
 
 공식 자료: [Namuh PLUG 포털](https://www.nhplug.com/) · [NH투자증권 공식 Python SDK](https://github.com/PLUG-OpenAPI/nhplug-sdk). NH PLUG는 NH투자증권 연결이며, 여러 증권사를 묶는 기능은 팔랑크스에서 별도 어댑터로 구현할 제품 목표입니다.
 
 ## Python 백엔드 사용 안내
 
-아래는 `main`의 기존 Python 기능·환경·CLI 안내입니다. Godot 실행 및 NH 설정은 위 기능 브랜치 문서를 사용합니다.
+아래는 기존 Python 기능·환경·CLI 안내입니다. Godot 실행 및 NH 설정은 `game/` 문서를 사용합니다.
 
 Phalanx는 한국 주식 포트폴리오 운용 프로그램입니다. 한국투자증권 실전계좌의 예수금 총액과 국내주식 잔고를 읽어 불변 JSON 스냅샷으로 저장하고, 사람이 직접 관리하는 로컬 투자 후보 유니버스, KIS 국내주식 일별 시세 조회, 공통 거래일 수익률 행렬, 과거 유니버스 HTML 리포트, 재현 가능한 자산배분 연구 harness, 동적 위험모형, Constrained ERC 및 별도 volatility-target/cash-residual 연구 계층을 제공합니다.
 

@@ -172,6 +172,35 @@ def test_late_generation_cannot_replace_current_result(inputs, tmp_path):
         app.closed()
 
 
+def test_finished_result_is_not_reported_before_worker_stops(inputs, tmp_path, monkeypatch):
+    _, _, payload = inputs
+    target = tmp_path / "result.json"
+    target.write_bytes(payload)
+    app = DesktopApplication(repository_factory=repository)
+    result_ready = threading.Event()
+    release_worker = threading.Event()
+    original_complete = app._complete
+
+    def complete_then_pause(*args):
+        original_complete(*args)
+        result_ready.set()
+        assert release_worker.wait(30)
+
+    monkeypatch.setattr(app, "_complete", complete_then_pause)
+    try:
+        reply = app.open_result(target, None, 1)
+        assert result_ready.wait(30)
+        assert app.job_status(reply["job_id"], 1)["state"] == "running"
+        rejected = app.open_result(target, None, 2)
+        assert rejected["active_job"] == {"generation": 1, "job_id": reply["job_id"]}
+        release_worker.set()
+        assert wait(app, reply)["state"] == "complete"
+        assert app.request_close() is True
+    finally:
+        release_worker.set()
+        app.closed()
+
+
 @pytest.mark.parametrize("outcome", ["input_unavailable", "common_failure", "partial", "failed"])
 def test_valid_financial_failures_are_results(outcome, tmp_path):
     import gzip
