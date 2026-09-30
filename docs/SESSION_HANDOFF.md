@@ -1,5 +1,13 @@
 # 세션 인수인계 · 투자 워크스페이스 · 2026-09-28
 
+## 공식 백서와 NH PLUG 범위 · 2026-09-30
+
+사용자 요청으로 [PHALANX_WHITEPAPER.md](PHALANX_WHITEPAPER.md)를 대표 백서로 만들었다. 현재 기능·저장 원칙·출처별 데이터 시점을 정리하고 NH PLUG의 별도 KRX 현재가 조회, WSL SDK 인증 경계, 비동기 응답 연결과 남은 실환경 검증을 명시했다. NH 코드는 로컬 추가 작업으로 보존하며 관심그룹 기능 커밋에 포함하지 않았다. 백서 문서화는 NH 기능의 배포·실제 API 검증 완료를 뜻하지 않는다.
+
+NH 코드 검토에서 `fetched_at`은 SDK 호출 직전의 관측 시각임을 확인했다. 현재 UI의 ‘수신’ 표기와 의미를 맞추는 일은 NH 후속 작업으로 남겼으며, 백서에는 응답 완료·거래소 체결 시각과 구분해 적었다. 백서의 로컬 링크와 diff 형식을 확인했고, 문서 추가로 기능 검사를 반복하지 않았다.
+
+관심그룹 기능은 `5e8d3c02016278ca69619fc97b9935f5116c7212`로 `origin/feature/watchlist-groups-table-v1`에 일반 푸시했고 원격 해시 일치를 확인했다. 지정 커밋 메시지는 `feat: add watchlist groups and sortable table`이다. 추가 백서·README 링크·이 인수인계만 후속 문서 커밋으로 보존한다.
+
 ## 최신 변경 · 관심그룹과 종목표 v1 · 2026-09-30
 
 `bf032ef` 기반 `feature/watchlist-groups-table-v1`에서 구현했다. 시작 시 남아 있던 참모의 늦은 완료 콜백 수정과 회귀 2건(`advisor_panel.gd`, `market_catalog_ui_test.gd`)은 이번 기능 커밋에서 제외하고 작업 트리의 미커밋 변경으로 보존한다.
