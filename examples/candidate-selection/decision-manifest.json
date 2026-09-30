@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "snapshot_id": "synthetic-selection-example-v1",
+  "source_name": "synthetic-candidate-selection-example",
+  "source_revision": "example-v1",
+  "features_sha256": "c445fb2c7b07d52b644e15866d83fbb5f6488e48774ab0a0a512701341f0232e",
+  "feature_schema_version": "1",
+  "feature_policy_version": "candidate_price_features_v1",
+  "price_basis": "adjusted_close_price_return_excluding_dividends",
+  "return_unit": "simple_decimal_ratio",
+  "market_timezone": "Asia/Seoul",
+  "observed_at": "2026-08-20T15:30:00+09:00",
+  "available_at": "2026-09-13T09:00:00+09:00",
+  "decision_at": "2026-09-13T10:00:00+09:00",
+  "availability_evidence": "declared"
+}
