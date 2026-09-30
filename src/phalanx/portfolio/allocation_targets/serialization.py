@@ -43,7 +43,7 @@ def serialize_allocation_targets(result: AllocationTargets) -> bytes:
         "status": result.status,
         "complete": result.complete,
         "succeeded_count": result.succeeded_count,
-        "prepared": result.prepared.model_dump(mode="json"),
+        "prepared": result.prepared.to_json_object(),
         "selection_as_of": result.prepared.selection_as_of.isoformat(),
         "reference_price_date": result.prepared.reference_price_date.isoformat()
         if result.prepared.reference_price_date

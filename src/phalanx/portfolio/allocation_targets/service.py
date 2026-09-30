@@ -25,6 +25,18 @@ class AllocationTargetsService:
             prepared = self.input_service.prepare_bytes(payload)
             return calculate_allocation_targets(prepared)
 
+    def calculate_replay(self, replay_path: Path, receipt_path: Path) -> AllocationTargets:
+        with localcontext(financial_decimal_context()):
+            prepared = self.input_service.prepare_replay(replay_path, receipt_path)
+            return calculate_allocation_targets(prepared)
+
+    def calculate_replay_bytes(
+        self, replay_bytes: bytes, receipt_bytes: bytes
+    ) -> AllocationTargets:
+        with localcontext(financial_decimal_context()):
+            prepared = self.input_service.prepare_replay_bytes(replay_bytes, receipt_bytes)
+            return calculate_allocation_targets(prepared)
+
     @staticmethod
     def export(result: AllocationTargets, output: Path) -> Path:
         return store_private_json_bytes(output, result.to_json_bytes())

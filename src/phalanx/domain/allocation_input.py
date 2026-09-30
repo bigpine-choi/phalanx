@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from phalanx.domain.candidate_selection import CandidateSelection, SelectionPolicy, SelectionSource
 from phalanx.domain.portfolio import AlignedReturnMatrix
@@ -59,6 +59,37 @@ class SymbolInputDiagnostics(_Model):
     missing_dates: tuple[date, ...] = ()
 
 
+class ReplayAllocationProvenance(_Model):
+    evidence_kind: Literal["recomputed_history_replay_with_local_read_receipt_v1"] = (
+        "recomputed_history_replay_with_local_read_receipt_v1"
+    )
+    replay_file_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selection_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    read_receipt_file_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    read_receipt_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    row_evidence_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    features_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    history_job_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    as_of: date
+    selected_codes: tuple[str, ...]
+    decision_at: AwareDatetime
+    replayed_at: AwareDatetime
+    read_completed_at: AwareDatetime
+    local_snapshot_read_before_decision_confirmed: Literal[True] = True
+    vendor_release_time_verified: Literal[False] = False
+    point_in_time_backtest_guaranteed: Literal[False] = False
+
+    @model_validator(mode="after")
+    def _coherent_times(self) -> Self:
+        try:
+            coherent = self.read_completed_at <= self.decision_at <= self.replayed_at
+        except OverflowError:
+            coherent = False
+        if not coherent:
+            raise ValueError("replay provenance times are inconsistent")
+        return self
+
+
 class AllocationInput(_Model):
     schema_version: Literal["1"] = "1"
     input_ready: bool
@@ -67,7 +98,10 @@ class AllocationInput(_Model):
     selected_codes: tuple[str, ...]
     selection_as_of: date
     reference_price_date: date | None
-    selection_file_sha256: str
+    selection_file_sha256: str | None
+    replay_provenance: ReplayAllocationProvenance | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     selection_source: SelectionSource
     selection_policy: SelectionPolicy
     selection_completion: SelectionCompletion
@@ -97,6 +131,22 @@ class AllocationInput(_Model):
     trading_day_completeness: Literal["unverified"] = "unverified"
     point_in_time_backtest_guaranteed: Literal[False] = False
 
+    @model_validator(mode="after")
+    def _coherent_provenance(self) -> Self:
+        evidence = self.replay_provenance
+        if evidence is None:
+            coherent = self.selection_file_sha256 is not None
+        else:
+            coherent = (
+                self.selection_file_sha256 is None
+                and evidence.history_job_id == self.history_job_id
+                and evidence.as_of == self.selection_as_of
+                and evidence.selected_codes == self.selected_codes
+            )
+        if not coherent:
+            raise ValueError("allocation input source provenance is inconsistent")
+        return self
+
     @field_serializer("matrix")
     def _matrix_json(self, matrix: AlignedReturnMatrix | None) -> dict[str, object] | None:
         if matrix is None:
@@ -110,7 +160,7 @@ class AllocationInput(_Model):
     def to_json_bytes(self) -> bytes:
         return (
             json.dumps(
-                self.model_dump(mode="json"),
+                self.to_json_object(),
                 ensure_ascii=False,
                 sort_keys=True,
                 indent=2,
@@ -118,3 +168,6 @@ class AllocationInput(_Model):
             )
             + "\n"
         ).encode("utf-8")
+
+    def to_json_object(self) -> dict[str, object]:
+        return self.model_dump(mode="json")

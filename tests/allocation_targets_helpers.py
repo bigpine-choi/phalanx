@@ -8,6 +8,7 @@ from allocation_input_helpers import view_from_series
 from feature_helpers import NOW, bars
 
 from phalanx.domain.candidate_selection import SelectionMetric, SelectionPolicy
+from phalanx.domain.price_history import HistoryAttempt, HistoryView, SymbolStatus
 from phalanx.market_data.features.service import PriceFeatureService
 from phalanx.market_data.history.repository import SqliteHistoryRepository
 from phalanx.selection.service import CandidateSelectionService
@@ -30,6 +31,7 @@ def target_inputs(
     degenerate=False,
     failed_candidate=False,
     names=None,
+    fetch_receipts=False,
 ):
     codes = CODES[:size] if codes is None else codes
     days = []
@@ -71,6 +73,27 @@ def target_inputs(
             for target in view.job.targets
         )
         view = view.model_copy(update={"job": view.job.model_copy(update={"targets": targets})})
+    if fetch_receipts:
+        view = HistoryView(
+            job=view.job,
+            symbols=tuple(
+                state.model_copy(
+                    update={
+                        "attempts": (
+                            HistoryAttempt(
+                                number=1,
+                                started_at=NOW,
+                                finished_at=NOW + timedelta(minutes=1),
+                                outcome="completed",
+                            ),
+                        )
+                    }
+                )
+                if state.status == SymbolStatus.COMPLETED
+                else state
+                for state in view.symbols
+            ),
+        )
     repository = SqliteHistoryRepository(directory / "history" / "history.sqlite3")
     repository.create(view)
     features = PriceFeatureService(repository, clock=lambda: NOW).calculate(

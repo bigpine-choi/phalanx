@@ -15,6 +15,7 @@ from phalanx.domain.allocation_input import (
     AllocationInput,
     AllocationInputReason,
     HistoryContract,
+    ReplayAllocationProvenance,
     SelectionCompletion,
     SymbolInputDiagnostics,
 )
@@ -112,7 +113,8 @@ def prepare_allocation_input(
     job: HistoryJob | None,
     states: tuple[SymbolHistory, ...],
     *,
-    selection_file_sha256: str,
+    selection_file_sha256: str | None,
+    replay_provenance: ReplayAllocationProvenance | None = None,
 ) -> AllocationInput:
     """Consume a validated selection and hash-verified repository snapshot, without I/O.
 
@@ -254,6 +256,7 @@ def prepare_allocation_input(
         selection_as_of=selection.source.as_of,
         reference_price_date=selection.reference_price_date,
         selection_file_sha256=selection_file_sha256,
+        replay_provenance=replay_provenance,
         selection_source=selection.source,
         selection_policy=selection.policy,
         selection_completion=SelectionCompletion.from_selection(selection),
