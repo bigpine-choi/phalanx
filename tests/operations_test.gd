@@ -46,7 +46,7 @@ func run() -> void:
 	write(path,original)
 	var store := Store.new(path)
 	var state: Dictionary = store.load_profile()
-	check(state.version==2 and state.operations.is_empty(),"v1 migrates to empty history")
+	check(state.version==Store.VERSION and state.operations.is_empty(),"v1 migrates to empty history")
 	check(FileAccess.get_file_as_string(path)==original,"Loading v1 does not rewrite disk")
 	check(state.notes==legacy.notes and state.extension==legacy.extension,"Migration preserves notes and unknown fields")
 	var view := dashboard(path)

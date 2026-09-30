@@ -2,7 +2,8 @@ extends RefCounted
 ## Versioned local preferences, independent of quotes, account and order models.
 const Data = preload("res://scripts/market_data.gd")
 const Record := preload("res://scripts/operation_record.gd")
-const VERSION := 2
+const WatchlistGroups = preload("res://scripts/watchlist_groups.gd")
+const VERSION := 3
 const MAX_BYTES := 4 * 1024 * 1024
 const MAX_NOTE_LENGTH := 100000
 var path: String
@@ -24,7 +25,7 @@ static func defaults() -> Dictionary:
 	var codes: Array = []
 	for stock: Dictionary in Data.STOCKS:
 		codes.append(stock.code)
-	return {"version":VERSION,"watchlist":codes,"notes":{},"operations":[],"live_operation_draft":Record.empty_draft(),"simulation_plan":{},"security_names":{}}
+	return {"version":VERSION,"watchlist":codes,"notes":{},"operations":[],"live_operation_draft":Record.empty_draft(),"simulation_plan":{},"security_names":{},"watchlist_view":WatchlistGroups.defaults()}
 
 static func valid_code(value: Variant) -> bool:
 	return value is String and not value.is_empty() and value.length() <= 32 and value.strip_edges() == value
@@ -32,6 +33,20 @@ static func valid_code(value: Variant) -> bool:
 static func validate(value: Variant) -> bool:
 	if not value is Dictionary or value.get("version") != VERSION:
 		return false
+	if not _valid_v2_content(value) or not WatchlistGroups.validate_state(value.get("watchlist_view")):
+		return false
+	# Saved groups are always subsets of the saved interests. Unknown legacy
+	# watchlist codes remain untouched; they simply cannot enter a new group.
+	var watched := {}
+	for code: Variant in value.watchlist:
+		watched[code] = true
+	for group: Dictionary in value.watchlist_view.groups:
+		for code: String in group.codes:
+			if not watched.has(code):
+				return false
+	return true
+
+static func _valid_v2_content(value: Dictionary) -> bool:
 	if not _valid_preferences(value) or not Record.valid_targets(value.get("targets",{})) or not Record.valid_draft(value.get("operation_draft",Record.empty_draft())):
 		return false
 	if not Record.valid_draft(value.get("live_operation_draft",Record.empty_draft())):
@@ -77,6 +92,7 @@ func _read(source: String) -> Dictionary:
 	if file == null:
 		return {"kind":"unreadable"}
 	if file.get_length() > MAX_BYTES:
+		file.close()
 		return {"kind":"invalid"}
 	var parser := JSON.new()
 	var error := parser.parse(file.get_as_text())
@@ -87,10 +103,19 @@ func _read(source: String) -> Dictionary:
 	if value is Dictionary and value.get("version") == 1:
 		if not _valid_preferences(value):
 			return {"kind":"invalid"}
-		# Migration is in memory only; the original v1 becomes the backup on save.
+		value = value.duplicate(true)
+		value.version = 2
+		if not value.has("operations"):
+			value.operations = []
+	if value is Dictionary and value.get("version") == 2:
+		# Validate the original v2 content before introducing the v3 field.
+		if not _valid_v2_content(value):
+			return {"kind":"invalid"}
+		# Migration stays in memory; first save backs up exact original bytes.
 		value = value.duplicate(true)
 		value.version = VERSION
-		value.operations = []
+		if not value.has("watchlist_view"):
+			value.watchlist_view = WatchlistGroups.defaults()
 	if value is Dictionary and value.get("version") != VERSION:
 		return {"kind":"version"}
 	if not validate(value):
@@ -133,7 +158,7 @@ func save_profile(watchlist: Array, notes: Dictionary, extra: Dictionary = {}) -
 	var payload := state.duplicate(true)
 	payload.watchlist = watchlist.duplicate()
 	payload.notes = notes.duplicate(true)
-	for key: String in ["targets","operation_draft","operations","live_operation_draft","simulation_plan","security_names"]:
+	for key: String in ["targets","operation_draft","operations","live_operation_draft","simulation_plan","security_names","watchlist_view"]:
 		if extra.has(key):
 			payload[key] = extra[key].duplicate(true)
 	if not validate(payload):

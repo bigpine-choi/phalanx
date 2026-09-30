@@ -13,6 +13,9 @@ const Order = preload("res://scripts/operation_order.gd")
 const Simulator = preload("res://scripts/portfolio_simulator.gd")
 const MarketCatalog = preload("res://scripts/market_catalog.gd")
 const MarketCatalogPanel = preload("res://scripts/market_catalog_panel.gd")
+const WatchGroups = preload("res://scripts/watchlist_groups.gd")
+const WatchTable = preload("res://scripts/watchlist_table_panel.gd")
+const WatchTableData = preload("res://scripts/watchlist_table_data.gd")
 var storage_path := Store.default_path()
 @export var embedded_in_camp := false
 
@@ -87,12 +90,17 @@ var _recording := false
 var catalog: Node
 var catalog_panel: Control
 var catalog_preview_code := ""
+var watch_groups: RefCounted
+var watch_table: Control
+var watch_table_button: Button
 
 func _ready() -> void:
 	if not embedded_in_camp:
 		get_window().min_size = Vector2i(900,680)
 	profile = Store.new(storage_path)
 	var saved: Dictionary = profile.load_profile()
+	watch_groups = WatchGroups.new()
+	watch_groups.load_state(saved.get("watchlist_view", WatchGroups.defaults()))
 	watchlist_codes = saved.watchlist
 	security_names = saved.get("security_names",{}).duplicate()
 	for code: String in watchlist_codes:
@@ -237,6 +245,16 @@ func _build_ui() -> void:
 	catalog_panel.set_catalog(catalog)
 	catalog_panel.set_watched_codes(watchlist_codes)
 	catalog_panel.security_chosen.connect(_catalog_security_chosen)
+	watch_table = WatchTable.new()
+	add_child(watch_table)
+	watch_table.set_model(watch_groups)
+	watch_table.preferences_changed.connect(_watch_preferences_changed)
+	watch_table.membership_requested.connect(_group_membership_requested)
+	watch_table.security_selected.connect(_table_security_selected)
+	watch_table.open_security.connect(_table_open_security)
+	watch_table.research_requested.connect(_table_open_research)
+	watch_table.catalog_requested.connect(_watch_catalog_requested)
+	catalog.changed.connect(_refresh_watch_table)
 	_select_workspace("market")
 
 func _build_header(page: Node) -> void:
@@ -325,6 +343,10 @@ func _build_watchlist() -> void:
 	catalog_open.tooltip_text = "저장된 시장 종목 마스터 · ETF와 우선주 포함"
 	catalog_open.add_theme_font_size_override("font_size",11)
 	box.add_child(catalog_open)
+	watch_table_button = _button("관심그룹 · 종목표 ↗", _open_watch_table)
+	watch_table_button.name = "OpenWatchlistTable"
+	watch_table_button.add_theme_font_size_override("font_size",11)
+	box.add_child(watch_table_button)
 	var scroll := ScrollContainer.new()
 	_expand(scroll,true)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -617,8 +639,9 @@ func _catalog_security_chosen(item: Dictionary, add_to_watchlist: bool) -> void:
 			"market":item.get("market",""),"kind":item.get("kind",""),"source":item.get("source",""),
 			"collected_at":item.get("collected_at",""),"chart_unsupported_reason":"" if bool(support.get("supported",false)) else str(support.get("reason","일봉 조회 미지원"))})
 		index = securities.size()-1
-		if not add_to_watchlist:
-			catalog_preview_code = code
+	# Re-selecting the same preview must keep its temporary ownership marker.
+	if not add_to_watchlist and code not in watchlist_codes and not _account_contains_code(code):
+		catalog_preview_code = code
 	_rebuild_stock_buttons()
 	_rebuild_research_buttons()
 	if add_to_watchlist and code not in watchlist_codes:
@@ -640,6 +663,71 @@ func _focus_catalog_stock(code: String) -> void:
 	var index := _security_index(code)
 	if index>=0 and index<stock_buttons.size() and stock_buttons[index].is_inside_tree():
 		stock_buttons[index].grab_focus()
+
+func _table_rows() -> Array:
+	return WatchTableData.build(securities, simulator.account, research_view.gateway, catalog.items if is_instance_valid(catalog) else [])
+
+func _refresh_watch_table(force := false) -> void:
+	if is_instance_valid(watch_table) and (watch_table.visible or force) and is_instance_valid(research_view):
+		watch_table.set_rows(_table_rows(), watchlist_codes, securities[selected].code)
+
+func _open_watch_table() -> void:
+	_select_workspace("market")
+	catalog_panel.close()
+	_refresh_watch_table(true)
+	watch_table.open(watch_table_button)
+
+func _watch_preferences_changed() -> void:
+	_queue_profile_save()
+	_refresh_watch_table()
+
+func _group_membership_requested(group_id: String, code: String, add: bool) -> void:
+	if not watch_groups.has_group(group_id):
+		watch_table.set_feedback("사용자 그룹을 먼저 선택하세요.")
+		return
+	if add:
+		var index := _security_index(code)
+		if index < 0 or not Data.valid_code(code) or securities[index].has("account_identity_conflict"):
+			watch_table.set_feedback("종목 식별자를 확인할 수 없어 그룹에 편입하지 않았습니다.")
+			return
+		if code not in watchlist_codes and watchlist_codes.size() >= 1000:
+			watch_table.set_feedback("전체 관심은 최대 1,000개입니다. 기존 관심을 해제한 뒤 추가하세요.")
+			return
+		if not watch_groups.add_code(group_id,code):
+			watch_table.set_feedback(watch_groups.message)
+			return
+		if code not in watchlist_codes:
+			watchlist_codes.append(code)
+		if catalog_preview_code == code:
+			catalog_preview_code = ""
+	else:
+		if not watch_groups.remove_code(group_id,code):
+			watch_table.set_feedback(watch_groups.message)
+			return
+	watch_table.set_feedback("그룹에 편입했습니다. 전체 관심에도 보존됩니다." if add else "그룹에서 제거했습니다. 관심과 노트는 유지됩니다.", false)
+	catalog_panel.set_watched_codes(watchlist_codes)
+	_refresh_favorite()
+	_filter_stocks(search.text)
+	_watch_preferences_changed()
+
+func _table_security_selected(code: String) -> void:
+	var index := _security_index(code)
+	if index >= 0 and securities[selected].code != code:
+		_select_stock(index)
+
+func _table_open_security(code: String) -> void:
+	_table_security_selected(code)
+	watch_table.close()
+	_focus_catalog_stock.call_deferred(code)
+
+func _table_open_research(code: String) -> void:
+	_table_security_selected(code)
+	watch_table.close()
+	_open_selected_advisor()
+
+func _watch_catalog_requested() -> void:
+	watch_table.close()
+	_open_catalog()
 
 func _set_period(days: int) -> void:
 	chart.set_period(days)
@@ -693,7 +781,7 @@ func _profile_extra(entries: Array) -> Dictionary:
 	var watched_names := {}
 	for stock: Dictionary in securities:
 		if stock.code in watchlist_codes: watched_names[stock.code] = stock.name
-	return {"operations":entries,"live_operation_draft":live_operation_draft,"simulation_plan":simulation_plan,"security_names":watched_names}
+	return {"operations":entries,"live_operation_draft":live_operation_draft,"simulation_plan":simulation_plan,"security_names":watched_names,"watchlist_view":watch_groups.export_state()}
 
 func _record_operation() -> void:
 	if _recording or dialog.recorded:
@@ -795,6 +883,11 @@ func _responsive() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not is_visible_in_tree() or dialog.visible:
 		return
+	if is_instance_valid(watch_table) and watch_table.visible:
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+			watch_table.handle_escape()
+			get_viewport().set_input_as_handled()
+		return
 	if is_instance_valid(catalog_panel) and catalog_panel.visible:
 		if event is InputEventKey and event.pressed and not event.echo and event.keycode==KEY_ESCAPE:
 			catalog_panel.close()
@@ -816,6 +909,7 @@ func _toggle_favorite() -> void:
 	var code: String = securities[selected].code
 	if code in watchlist_codes:
 		watchlist_codes.erase(code)
+		watch_groups.remove_code_everywhere(code)
 	else:
 		if securities[selected].has("account_identity_conflict"):
 			_refresh_favorite()
@@ -831,6 +925,7 @@ func _toggle_favorite() -> void:
 	_refresh_favorite()
 	_filter_stocks(search.text)
 	_queue_profile_save()
+	_refresh_watch_table()
 	flush_profile()
 
 func _refresh_favorite() -> void:
@@ -838,7 +933,7 @@ func _refresh_favorite() -> void:
 	favorite_button.set_pressed_no_signal(included)
 	favorite_button.text = "★ 관심" if included else "☆ 추가"
 	favorite_button.disabled = not included and (watchlist_codes.size()>=1000 or securities[selected].has("account_identity_conflict"))
-	favorite_button.tooltip_text = "관심종목에서 해제" if included else ("계좌와 카탈로그의 종목명이 달라 등록할 수 없습니다" if securities[selected].has("account_identity_conflict") else ("관심종목 최대 1,000개 · 기존 항목을 해제한 뒤 추가하세요" if favorite_button.disabled else "관심종목에 추가"))
+	favorite_button.tooltip_text = "전체 관심과 모든 그룹에서 해제 · 노트는 유지" if included else ("계좌와 카탈로그의 종목명이 달라 등록할 수 없습니다" if securities[selected].has("account_identity_conflict") else ("관심종목 최대 1,000개 · 기존 항목을 해제한 뒤 추가하세요" if favorite_button.disabled else "관심종목에 추가"))
 
 func _queue_profile_save() -> void:
 	profile_dirty = true
@@ -980,6 +1075,7 @@ func _render_market() -> void:
 		if not position.is_empty(): stock_buttons[i].tooltip_text += "\n잔고 조회가 · "+simulator._time(position.price_observed_at)+(" · 이전 잔고" if simulator.stale else "")
 		elif not stored.is_empty(): stock_buttons[i].tooltip_text += "\n마지막 일봉 종가 · "+stored.as_of
 	_render_position()
+	_refresh_watch_table()
 
 func _render_position() -> void:
 	var position := _position_for(securities[selected].code)

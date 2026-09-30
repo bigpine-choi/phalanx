@@ -155,6 +155,7 @@ func close_dashboard() -> void:
 	if is_instance_valid(dashboard):
 		dashboard.flush_profile()
 		dashboard.catalog_panel.close()
+		dashboard.watch_table.close()
 		dashboard.dialog.hide()
 		dashboard.research_view.advisor.settings.hide()
 	if is_instance_valid(_tween):
@@ -196,6 +197,9 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if not is_open() or not _consume_escape(event):
+		return
+	if dashboard.watch_table.visible:
+		dashboard.watch_table.handle_escape()
 		return
 	if dashboard.catalog_panel.visible:
 		dashboard.catalog_panel.close()
