@@ -146,9 +146,9 @@ func _clear() -> void:
 	scroll.scroll_vertical = 0
 
 func _completed(_action: String, payload: Dictionary, error: String) -> void:
-	_set_busy(false)
 	if _request_signature != _signature:
 		return
+	_set_busy(false)
 	if not error.is_empty():
 		status_label.text = ERRORS.get(error,"참모 연결을 완료하지 못했습니다. 다시 요청하세요. ("+error+")")
 		return

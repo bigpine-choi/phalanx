@@ -149,6 +149,11 @@ func run() -> void:
 	check(selected_security.name=="검증전자" and selected_security.get("account_identity_conflict")=="다른 검증 종목","Late account identity conflict preserves the catalogue name")
 	check(dashboard.position_button.disabled and dashboard.position_heading.text.contains("식별자") and dashboard.research_view.gateway.quote_state=="unsupported" and dashboard.chart.candles.is_empty(),"Conflicting account row is not attached to market position or history")
 	check(dashboard.research_view.advisor.context.quote.is_empty() and dashboard.research_view.advisor.context.plan.is_empty() and dashboard.research_view.advisor.buttons[0].disabled,"Advisor cannot analyze a mismatched account identity")
+	dashboard.research_view.advisor._request_signature = "superseded-request"
+	dashboard.research_view.advisor._completed("analyze",{},"")
+	check(dashboard.research_view.advisor.buttons[0].disabled,"Late advisor completion cannot reenable a conflicted security")
+	dashboard.research_view.advisor.request_report("brief",true)
+	check(not dashboard.research_view.advisor.busy and dashboard.research_view.advisor.status_label.text.contains("시작하지 않았습니다"),"Direct advisor request is blocked before paid work on a conflicted identity")
 	dashboard.flush_profile()
 	check(Store.new(directory.path_join("workspace.json")).load_profile().security_names.get("123456")=="검증전자","Account conflict cannot overwrite the watched name on disk")
 	dashboard.simulator.set_account(account_snapshot("검증전자","b"))
