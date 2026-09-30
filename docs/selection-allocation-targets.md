@@ -83,4 +83,4 @@ service.export(result, Path("/absolute/private/new-allocation-targets.json"))
 
 [6종목 합성 SQLite 재현](../examples/selection-allocation-targets/README.md)은 실제 features→selection→input→risk→ERC 경로를 사용한다. 테스트는 직접 엔진 호출과의 비교, 4/5종목 제약 경계, 미준비 입력의 호출 차단, 휴일/미래 가격, 잘못된 반환 근거, 부분/공통 실패, Decimal 문맥, 원천 불변·오프라인·원자 저장을 검증한다.
 
-숫자 6자리 코드 한계, 공식 거래일 무누락 미검증, 현재 후보·사후 수집 수정주가의 point-in-time 미보장과 배당 제외 가격수익률 한계를 유지한다. 영수증의 시각은 로컬 시계의 기록이며 SHA-256은 파일·내용 식별 근거다. 공급자의 과거 공개 시각·수정 이력 또는 서명을 증명하지 않으며 `point_in_time_backtest_guaranteed=false`다. 실제 API·자격증명·계좌·가용현금·정수주·매매계획·주문·변동성 목표/현금 overlay·GUI·새 모델·전체 rolling 연구/과거 백테스트는 포함하지 않는다.
+숫자 6자리 코드 한계, 공식 거래일 무누락 미검증, 현재 후보·사후 수집 수정주가의 point-in-time 미보장과 배당 제외 가격수익률 한계를 유지한다. 영수증의 시각은 로컬 시계의 기록이며 SHA-256은 파일·내용 식별 근거다. 공급자의 과거 공개 시각·수정 이력 또는 서명을 증명하지 않으며 `point_in_time_backtest_guaranteed=false`다. 실제 API·자격증명·계좌·가용현금·정수주·매매계획·주문·변동성 목표/현금 overlay·새 모델·전체 rolling 연구/과거 백테스트는 포함하지 않는다. Godot의 **연구 배분** 화면은 이 명령이 저장한 결과를 읽기 전용으로 표시한다. 파일을 열 때 DB·영수증·계산을 다시 검증하지 않으며 실계좌 포트폴리오와 연결하지 않는다. 사용법은 [게임 안내](../game/README.md#연구-배분-결과-보기)를 참고한다.
