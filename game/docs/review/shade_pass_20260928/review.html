@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phalanx · 그늘 반응 비교</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101513;color:#e4e2d8}body{max-width:1200px;margin:auto;padding:32px 24px 70px}h1{font-size:30px;font-weight:600;margin:12px 0}h2{font-size:21px;font-weight:500;margin-top:36px}.eyebrow{color:#c7aa71;letter-spacing:.19em;font-size:13px}.muted{color:#aeb4ac;font-size:14px;line-height:1.7}p{line-height:1.75}button,select{font:inherit;background:#26312c;color:#eee6d4;border:1px solid #605941;border-radius:5px;padding:8px 14px;cursor:pointer}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #e4bf75;outline-offset:3px}.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:22px 0 14px}.compare{position:relative;aspect-ratio:3/2;overflow:hidden;border:1px solid #746444}.compare img{position:absolute;width:100%;height:100%;object-fit:contain;inset:0}.compare .after{clip-path:inset(0 0 0 50%)}.divider{position:absolute;left:50%;height:100%;width:2px;background:#eaca8a}.badge{position:absolute;top:10px;background:#0c100edd;border:1px solid #746444;padding:6px 13px;font-size:13px}.left{left:12px}.right{right:12px}input[type=range]{width:100%;margin:16px 0;accent-color:#c7aa71}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{background:#242822;border:1px solid #454a3f;border-radius:4px;overflow:hidden;margin:0}.card img{width:100%;display:block}.card figcaption{font-size:14px;padding:14px;line-height:1.5}.native{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.native img{width:100%;display:block}a{color:#e0bd79}.note{padding:15px 20px;border-left:3px solid #b29761;background:#1c2520}.metric{color:#e1c483;font-size:19px}@media(max-width:650px){body{padding:24px 14px}.cards,.native{grid-template-columns:repeat(2,1fr)}h1{font-size:25px}.badge{font-size:10px;padding:4px 7px}}
+</style>
+<div class="eyebrow">PHALANX / CHARACTER LIGHTING</div>
+<h1>배경의 그늘 안에서 캐릭터도 어두워지도록</h1>
+<p>같은 배경·카메라·위치·포즈의 실제 GPU 렌더를 비교합니다. 배경 그림자는 그대로 두고, 그늘 위치에 따라 캐릭터의 직사광·주변광·드리우는 그림자를 함께 바꿨습니다.</p>
+<p class="muted">2026-09-28 · 위 비교 촬영은 검수 스크립트의 위치 지정입니다. 아래 실제 창 검수는 컴퓨터 사용 도구의 OS 입력이며, 사람 플레이 녹화와 구분합니다.</p>
+<div class="controls"><label for="place">비교 위치</label><select id="place"><option value="canopy">마당 오른쪽 그늘</option><option value="tree">올리브나무 주변</option><option value="wall">담장 옆 나무 그늘</option><option value="sun">햇빛 아래</option></select><button id="showBefore">수정 전 전체</button><button id="showAfter">수정 후 전체</button><button id="split">반씩 비교</button></div>
+<div class="compare"><img id="before" src="baseline-canopy-1440.png" alt="수정 전 같은 위치"><img id="after" class="after" src="after-canopy-1440.png" alt="수정 후 같은 위치"><div class="divider" id="divider"></div><span class="badge left">수정 전</span><span class="badge right">수정 후</span></div>
+<label for="wipe" class="muted">비교 경계 이동</label><input type="range" id="wipe" min="0" max="100" value="50" aria-label="수정 전후 비교 경계">
+<h2>같은 인물의 조명 차이</h2>
+<div class="cards">
+<figure class="card"><img src="baseline-canopy-actor.png" alt="수정 전 그늘 속 캐릭터"><figcaption>수정 전 · 그늘에서도 고정 조명</figcaption></figure>
+<figure class="card"><img src="after-sun-actor.png" alt="수정 후 햇빛 속 캐릭터"><figcaption>수정 후 · 따뜻한 직사광</figcaption></figure>
+<figure class="card"><img src="after-canopy-actor.png" alt="수정 후 그늘 속 캐릭터"><figcaption>수정 후 · 그늘과 차가운 주변광</figcaption></figure>
+<figure class="card"><img src="after-cape-actor.png" alt="수정한 망토 뒷모습"><figcaption>망토 · 주름에 붙는 태양 문양과 가장자리</figcaption></figure>
+</div>
+<p class="metric">동일 포즈 GPU 검사: 그늘의 평균 밝기 ≈ 햇빛 아래의 70%</p>
+<p class="muted">불투명 캐릭터 픽셀의 밝기를 비교한 한 가지 검수 포즈입니다. 모든 방향·재질이 정확히 같은 비율로 어두워진다는 뜻은 아닙니다. 그늘에서도 발밑 접촉 그림자와 주변광은 유지됩니다.</p>
+<h2>실제 창에서 확인한 화면 흐름</h2>
+<div class="native">
+<figure class="card"><a href="native-1440-09-camp.png"><img src="native-1440-09-camp.png" alt="1440 야영지 복귀"></a><figcaption>1440×960 · 복귀한 야영지</figcaption></figure>
+<figure class="card"><a href="native-1440-06-headquarters.png"><img src="native-1440-06-headquarters.png" alt="1440 사령부"></a><figcaption>1440×960 · 고정시점 사령부</figcaption></figure>
+<figure class="card"><a href="native-1440-07-headquarters.png"><img src="native-1440-07-headquarters.png" alt="1440 대시보드"></a><figcaption>1440×960 · 지도 클릭 후 대시보드</figcaption></figure>
+<figure class="card"><a href="native-1280-08-camp.png"><img src="native-1280-08-camp.png" alt="1280 야영지 복귀"></a><figcaption>1280×720 · 복귀 위치 유지</figcaption></figure>
+<figure class="card"><a href="native-1280-05-headquarters.png"><img src="native-1280-05-headquarters.png" alt="1280 사령부"></a><figcaption>1280×720 · 고정시점 사령부</figcaption></figure>
+<figure class="card"><a href="native-1280-06-headquarters.png"><img src="native-1280-06-headquarters.png" alt="1280 대시보드"></a><figcaption>1280×720 · 아래 내용은 스크롤</figcaption></figure>
+</div>
+<p class="note">두 해상도의 전체 왕복은 정상 속도에서 확인했습니다. 이동 중 재지정·Alt+Tab 정지/복귀는 도구의 입력 간격을 확보하기 위해 검수 실행에서만 0.25배 재생으로 확인했고, 1배로 복구했습니다. 제품의 이동 속도는 변경하지 않았습니다.</p>
+<h2>남은 미술 한계</h2>
+<p class="muted">그늘은 고정 배경에 맞춘 여섯 구역의 근사입니다. 잎의 개별 그림자가 몸을 가로지르는 정밀한 투영, 움직이는 태양·배경 그림자는 지원하지 않습니다. 캐릭터는 여전히 배경보다 단순한 코드 제작 모델입니다. 배경을 바꾸면 그늘·가림 구역도 다시 맞춰야 합니다.</p>
+<p><a href="VALIDATION.md">변경 내용과 검증 기록</a></p>
+<script>
+const range=document.querySelector('#wipe'),after=document.querySelector('#after'),before=document.querySelector('#before'),divider=document.querySelector('#divider');
+function wipe(v){range.value=v;after.style.clipPath=`inset(0 0 0 ${v}%)`;divider.style.left=`${v}%`;divider.style.opacity=(v==0||v==100)?0:1;}
+range.addEventListener('input',()=>wipe(range.value));
+document.querySelector('#showBefore').onclick=()=>wipe(100);
+document.querySelector('#showAfter').onclick=()=>wipe(0);
+document.querySelector('#split').onclick=()=>wipe(50);
+document.querySelector('#place').onchange=e=>{before.src=`baseline-${e.target.value}-1440.png`;after.src=`after-${e.target.value}-1440.png`;};
+</script></html>
