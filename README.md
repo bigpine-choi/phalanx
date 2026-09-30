@@ -10,8 +10,9 @@ Phalanx는 **투자 터미널과 마케도니아 사령부 게임을 연결하�
 | --- | --- | --- |
 | Python 금융 백엔드 | 저장소 루트 `src/`, `tests/` | KIS 조회·스냅샷, 시장 후보 발굴, 일봉 저장, 종목 선정·배분 연구, 성과·원장 및 오프라인 편성실 |
 | Windows Godot 게임 | [`game/`](game/README.md) | 야영지·사령부, 시장 검색, 관심그룹·종목표, KIS 차트·계좌, 노트·참모·모의 비중 계획, NH KRX 현재가 |
+| 관심그룹 시세판·차트 탐색 v1 | [`feature/watchlist-quotes-chart-v1`](https://github.com/bigpine-choi/phalanx/blob/feature/watchlist-quotes-chart-v1/README.md) | 관심그룹·NH 공유 조회 큐/캐시, 가격 정렬, 최대 20종목 수동 시세 갱신, 차트 확대·이동·기간 복원. 최신 변경은 아직 `main/game/`에 미반영 |
 
-게임의 기존 브랜치는 별도 Git 이력에서 개발되었다. 이 통합본은 커밋된 게임 기능을 `game/`에 모으고 Python 엔진은 루트에 유지한다. 다른 작업 복사본의 미커밋 후속 변경은 포함하지 않았다. 제품 흐름과 데이터 출처는 [게임 공식 백서](game/docs/PHALANX_WHITEPAPER.md), 다음 개발 순서와 동시 작업 기준은 [개발 계획](docs/development-plan.md)을 따른다.
+게임의 기존 브랜치는 별도 Git 이력에서 개발되었다. 이 통합본은 커밋된 게임 기능을 `game/`에 모으고 Python 엔진은 루트에 유지한다. 다른 작업 복사본의 미커밋 후속 변경은 포함하지 않았다. 이후 시세판·차트 탐색 v1은 [`14182c1`](https://github.com/bigpine-choi/phalanx/commit/14182c16f05549a0421d4e09ce700ee52497731d)로 별도 기능 브랜치에 보존되었다. 아래 최신 검증 결과는 이 기능 브랜치의 기록이며 `main/game/`의 재검증 결과가 아니다. 제품 흐름과 데이터 출처는 [게임 공식 백서](game/docs/PHALANX_WHITEPAPER.md), 다음 개발 순서와 동시 작업 기준은 [개발 계획](docs/development-plan.md)을 따른다.
 
 `game/`은 현재 실행 가능한 Godot 시제품이다. 장기 UE5 사령부 방향은 [별도 Draft PR #26](https://github.com/bigpine-choi/phalanx/pull/26)에서 검토 중이며, UE5 실행·연결 검증은 아직 완료되지 않았다.
 
@@ -25,7 +26,17 @@ Phalanx는 **투자 터미널과 마케도니아 사령부 게임을 연결하�
 | 계좌·잔고 및 수정주가 일봉 | 기존 KIS Python 조회 → Godot 시장·포트폴리오·리서치 |
 | NH 국내주식 현재가 | NH PLUG `/krstock/quote/v1/currentPrice`, `market_cd=KRX` → 리서치 별도 표시 |
 
-키·시크릿은 게임에 입력하지 않고 WSL의 SDK 설정에서 읽습니다. [NH 설정과 연결 범위](game/docs/NHPLUG_READONLY.md)를 참고하세요. 현재 NH 연결에는 계좌·잔고·주문, 자동 주기 갱신, WebSocket 스트리밍, NH 일봉 차트가 포함되지 않습니다. 사용자가 실제 키로 공식 SDK 현재가와 Windows→WSL 연결 응답을 확인했다. 게임 창에서 버튼 조작과 장애 복구는 별도로 확인할 항목이다.
+키·시크릿은 게임에 입력하지 않고 WSL의 SDK 설정에서 읽습니다. [NH 설정과 연결 범위](game/docs/NHPLUG_READONLY.md)를 참고하세요. 현재 NH 연결에는 계좌·잔고·주문, 자동 주기 갱신, WebSocket 스트리밍, NH 일봉 차트가 포함되지 않습니다. 시세판·차트 기능 브랜치의 2026-09-30 검증 기록에는 F5 야영지→사령부→관심그룹 동선에서 보통주·우선주·ETF 각 1종목을 한 번 갱신한 **성공 3건·실패 0건**과 표·리서치 값 일치가 기록되어 있습니다. 이 검증은 해당 기능 브랜치의 결과이며 `main/game/`의 동일 동작을 보장하지 않습니다.
+
+### 최신 시세판·차트 탐색 범위
+
+[`feature/watchlist-quotes-chart-v1`](https://github.com/bigpine-choi/phalanx/blob/feature/watchlist-quotes-chart-v1/README.md)의 **표시 종목 시세 갱신 · 최대 20**은 현재 그룹·검색·정렬 결과 중 처음 20개 조회 가능 종목을 순차 조회합니다. 20개는 그룹 저장 한도가 아니라 1회 수동 갱신 한도입니다. 현재가·출처·수신 시각·상태를 표시하고 가격 정렬 후에도 선택 종목을 유지합니다. 실패하면 이전 정상 가격·시각과 실패 상태를 함께 보존합니다. 리서치의 NH 현재가 버튼도 같은 조회 큐·캐시를 사용하며, 종목 선택만으로 NH 또는 유료 AI를 요청하지 않습니다.
+
+이 브랜치의 수신 시각은 유효한 NH 응답과 가격 검증을 마친 뒤 기록한 **응답 완료시각**입니다. 요청 시작시각이나 거래소 체결시각을 뜻하지 않습니다.
+
+차트 위 휠은 커서 날짜를 기준으로 확대·축소하고, 왼쪽 드래그는 구간을 이동하며, 더블클릭 또는 기간 버튼은 선택 기간을 복원합니다. 탐색은 이미 저장된 일봉 안에서 동작하며 추가 조회를 실행하지 않습니다.
+
+F5 전체 동선과 1280×720·1440×960 창 조작을 확인한 기록이 있습니다. **이번 F5 차트는 합성 일봉**을 사용했으므로 KIS 일봉 재수집 검증을 의미하지 않습니다. 부분 실패와 이전 가격·시각 보존은 모의 응답 14건으로 확인했습니다. 실제 서비스 장애·장시간 실 API 운용·다른 PC 환경은 미검증이며, 차트 탐색 상태의 앱 재실행 저장도 이번 범위에 포함되지 않습니다. [검증 기록과 직접 확인 순서](https://github.com/bigpine-choi/phalanx/blob/14182c16f05549a0421d4e09ce700ee52497731d/docs/WATCHLIST_QUOTES_CHART_VALIDATION.md)를 참고하세요.
 
 공식 자료: [Namuh PLUG 포털](https://www.nhplug.com/) · [NH투자증권 공식 Python SDK](https://github.com/PLUG-OpenAPI/nhplug-sdk). NH PLUG는 NH투자증권 연결이며, 여러 증권사를 묶는 기능은 팔랑크스에서 별도 어댑터로 구현할 제품 목표입니다.
 
