@@ -100,6 +100,13 @@ def test_incoherent_replay_evidence_is_rejected(
         project_saved_targets(json.dumps(raw).encode(), source_name="bad.json")
 
 
+def test_replay_evidence_rejects_source_job_mismatch(targets: bytes) -> None:
+    raw = json.loads(_with_replay(targets))
+    raw["prepared"]["selection_source"]["history_job_id"] = "0" * 32
+    with pytest.raises(FormationRoomInputError):
+        project_saved_targets(json.dumps(raw).encode(), source_name="bad.json")
+
+
 def test_bridge_runs_from_checkout_and_returns_bounded_envelope(
     targets: bytes, tmp_path: Path
 ) -> None:

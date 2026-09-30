@@ -222,6 +222,7 @@ def _source_provenance(
     job = _text(replay["history_job_id"])
     _require(re.fullmatch(r"[0-9a-f]{32}", job) is not None)
     _require(job == prepared["history_job_id"])
+    _require(job == _object(prepared["selection_source"])["history_job_id"])
     _require(_date(replay["as_of"]) == selected_at)
     _require(_codes(replay["selected_codes"]) == codes)
     read_at = _instant(replay["read_completed_at"])
@@ -265,7 +266,6 @@ def _prepared(
     )
     source = _object(prepared["selection_source"])
     _require(_date(source["as_of"]) == selected_at)
-    _require(source["history_job_id"] == prepared["history_job_id"])
     reasons: list[dict[str, object]] = [
         {"code": _text(item["code"]), "message": _text(item["description"])}
         for entry in _list(prepared["reasons"])
