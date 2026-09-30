@@ -24,6 +24,9 @@ def allocation_input(
     output: Annotated[Path | None, typer.Option("--output")] = None,
 ) -> None:
     """선정 또는 검증된 재실행 결과로 위험모형 수익률 입력을 준비합니다."""
+    if selection is None and replay_history is None and read_receipt is None:
+        typer.echo("MISSING_INPUT: --selection 또는 --replay-history가 필요합니다.", err=True)
+        raise typer.Exit(2)
     if (selection is None) == (replay_history is None) or (replay_history is None) != (
         read_receipt is None
     ):

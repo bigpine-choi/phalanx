@@ -25,6 +25,9 @@ def allocation_targets(
     output: Annotated[Path | None, typer.Option("--output")] = None,
 ) -> None:
     """선정 종목의 마지막 관측일에 네 ERC 연구용 배분안을 독립 계산합니다."""
+    if selection is None and replay_history is None and read_receipt is None:
+        typer.echo("MISSING_INPUT: --selection 또는 --replay-history가 필요합니다.", err=True)
+        raise typer.Exit(2)
     if (selection is None) == (replay_history is None) or (replay_history is None) != (
         read_receipt is None
     ):
