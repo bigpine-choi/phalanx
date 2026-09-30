@@ -428,6 +428,10 @@ uv run phalanx candidates select \
 
 동점은 코드 ASCII 순서로 결정하며 경쟁 순위와 최종 순번을 따로 보존합니다. 모든 후보를 selected/not_selected/unavailable로 남기고 selected_codes를 선정 순서대로 제공합니다. 부분 결과도 JSON으로 출력·저장하며 기존 파일은 덮어쓰지 않습니다. 완전 결과는 종료 코드 0, 부분 결과는 2입니다. 비중·주문·자동 유니버스 반영과 수익성 검증은 포함하지 않습니다. [정책·입력 검증·부분 결과·해석 한계](docs/candidate-selection.md)와 [합성 예제](examples/candidate-selection/README.md)를 참고하세요.
 
+명시한 관측·이용 가능·판단 시각과 features 원본 해시를 붙여 같은 선정을 재실행하려면
+`phalanx candidates replay`를 사용합니다. 시각은 manifest 작성자의 선언이며 개별 가격의 과거
+이용 가능성을 증명하지 않습니다. [판단 시점 재실행 계약](docs/decision-snapshot.md)을 참고하세요.
+
 ## 선정 결과 → 배분 입력 v1
 
 선정 JSON과 지정한 저장 history DB에서 기존 위험모형용 수익률 행렬을 준비합니다. 네트워크·자격증명 접근 없이 선정 순서와 Decimal 값을 보존합니다.
