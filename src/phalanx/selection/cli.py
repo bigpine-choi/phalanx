@@ -7,9 +7,14 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
+from phalanx.desktop.storage import StorageError, read_selected_file
 from phalanx.domain.candidate_selection import SelectionMetric, SelectionPolicy
 from phalanx.market_data.features.errors import PriceFeatureError
 from phalanx.market_data.history.errors import HistoryError, HistoryStorageError
+from phalanx.market_data.history.read_receipt import (
+    MAX_READ_RECEIPT_BYTES,
+    HistoryReadReceiptError,
+)
 from phalanx.portfolio.private_json_storage import (
     PrivateJsonAlreadyExistsError,
     PrivateJsonStorageError,
@@ -122,6 +127,9 @@ def replay_history(
     top: Annotated[int, typer.Option("--top")],
     max_age_days: Annotated[int, typer.Option("--max-age-days")],
     code: Annotated[list[str] | None, typer.Option("--code", help="반복 가능한 종목 코드")] = None,
+    read_receipt: Annotated[
+        Path | None, typer.Option("--read-receipt", help="저장 후 읽기 확인 영수증 JSON")
+    ] = None,
     output: Annotated[Path | None, typer.Option("--output", help="새 실행 기록 JSON 경로")] = None,
 ) -> None:
     """저장된 일봉의 로컬 수집 완료 시각을 검사하고 후보를 재선정합니다."""
@@ -147,6 +155,11 @@ def replay_history(
 
     service = HistoryReplayService()
     try:
+        receipt_bytes = (
+            read_selected_file(read_receipt, MAX_READ_RECEIPT_BYTES)
+            if read_receipt is not None
+            else None
+        )
         result = service.run(
             SqliteHistoryRepository(history_db),
             job_id,
@@ -154,13 +167,23 @@ def replay_history(
             parsed_decision_at,
             policy,
             codes=tuple(code),
+            read_receipt_bytes=receipt_bytes,
         )
         if output is not None:
             service.export(result, output)
     except HistoryStorageError as error:
         typer.echo(f"{error.code}: {error}", err=True)
         raise typer.Exit(66) from None
-    except (HistoryReplayError, HistoryError, PriceFeatureError, SelectionInputError) as error:
+    except (StorageError, OSError):
+        typer.echo("RECEIPT_READ_FAILED: 읽기 영수증 경로·권한·크기를 확인하세요.", err=True)
+        raise typer.Exit(66) from None
+    except (
+        HistoryReplayError,
+        HistoryReadReceiptError,
+        HistoryError,
+        PriceFeatureError,
+        SelectionInputError,
+    ) as error:
         typer.echo(f"{error.code}: {error}", err=True)
         raise typer.Exit(65) from None
     except PrivateJsonAlreadyExistsError:

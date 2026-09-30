@@ -435,6 +435,9 @@ uv run phalanx candidates select \
 저장된 일봉 작업을 기준으로 수집 완료 시각과 실제 사용한 가격 행의 해시를 확인하며 재선정하려면
 `phalanx candidates replay-history`를 사용합니다. 이는 로컬 수집 시각 검사이며 과거 시장의
 자료 공개 시각은 증명하지 않습니다. [저장 일봉 재실행 계약](docs/history-replay.md)을 참고하세요.
+DB 저장 후 실제 읽기를 확인한 기록이 필요하면
+`phalanx market-data history read-receipt`로 영수증을 만들고 재실행에 `--read-receipt`로 전달합니다.
+[읽기 확인 영수증 계약](docs/history-read-receipt.md)을 참고하세요.
 
 ## 선정 결과 → 배분 입력 v1
 
