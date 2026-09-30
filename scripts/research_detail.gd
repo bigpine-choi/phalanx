@@ -6,6 +6,8 @@ const CommandPanel = preload("res://scripts/command_panel.gd")
 const Data = preload("res://scripts/market_data.gd")
 const Model = preload("res://scripts/research_model.gd")
 const Gateway = preload("res://scripts/research_gateway.gd")
+const NhProcess = preload("res://scripts/nhplug_quote_process.gd")
+const NhModel = preload("res://scripts/nhplug_quote_model.gd")
 const Chart = preload("res://scripts/price_chart.gd")
 const Trend = preload("res://scripts/financial_trend.gd")
 const Advisor = preload("res://scripts/advisor_panel.gd")
@@ -13,11 +15,14 @@ var advisor: PanelContainer
 var right_column: VBoxContainer
 var finance_panel: PanelContainer
 var gateway: Node
+var nh_process: Node
 var title_label: Label
 var price_label: Label
 var change_label: Label
 var status_label: Label
 var source_label: Label
+var nh_status: Label
+var nh_button: Button
 var finance_status: Label
 var finance_heading: Label
 var metrics: Array[Label] = []
@@ -35,6 +40,7 @@ var mode_buttons: Array[Button] = []
 var current_code := ""
 var current_quote: Dictionary = {}
 var current_financials: Dictionary = {}
+var nh_generation := 0
 
 func _ready() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -43,6 +49,10 @@ func _ready() -> void:
 	add_child(gateway)
 	gateway.changed.connect(_render)
 	gateway.changed.connect(func() -> void: context_changed.emit())
+	nh_process = NhProcess.new()
+	nh_process.directory = ProjectSettings.globalize_path("user://research_cache")
+	add_child(nh_process)
+	nh_process.completed.connect(_nh_completed)
 	_build()
 	resized.connect(_responsive)
 	_responsive.call_deferred()
@@ -85,6 +95,8 @@ func _build() -> void:
 	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	heading.add_child(title_label)
 	heading.add_child(_label("KIS RESEARCH  /  KRW",11,T.GOLD))
+	nh_button = _button("NH 현재가",_fetch_nh)
+	heading.add_child(nh_button)
 	refresh_button = _button("새로고침",gateway.refresh)
 	heading.add_child(refresh_button)
 	var quote_row := HBoxContainer.new()
@@ -98,6 +110,8 @@ func _build() -> void:
 	add_child(status_label)
 	source_label = _label("",11,T.MUTED,true)
 	add_child(source_label)
+	nh_status = _label("NH투자증권 현재가는 버튼으로 별도 조회 · 키는 WSL 설정 파일에서 읽습니다.",11,T.MUTED,true)
+	add_child(nh_status)
 	main_columns = BoxContainer.new()
 	main_columns.add_theme_constant_override("separation",12)
 	add_child(main_columns)
@@ -189,10 +203,38 @@ func select_stock(index: int) -> void:
 	select_security(Data.STOCKS[index])
 
 func select_security(stock: Dictionary) -> void:
+	nh_generation += 1
 	current_code = stock.code
 	title_label.text = stock.name+"  /  종목 분석"
+	nh_button.disabled = not NhModel.valid_code(current_code)
+	nh_status.text = "NH투자증권 현재가는 버튼으로 별도 조회 · KIS 일봉과 기준 시각이 다릅니다."
 	gateway.select_stock(current_code,str(stock.get("chart_unsupported_reason","")))
 	if is_visible_in_tree(): gateway.activate()
+
+func _fetch_nh() -> void:
+	if not NhModel.valid_code(current_code):
+		return
+	nh_generation += 1
+	nh_button.disabled = true
+	nh_status.text = "NH투자증권 KRX 현재가 조회 중…"
+	nh_process.request(current_code,nh_generation)
+
+func _nh_completed(code: String, token: int, envelope: Dictionary) -> void:
+	if token!=nh_generation or code!=current_code:
+		return
+	nh_button.disabled = false
+	var quote := NhModel.parse(envelope.get("payload"),code,int(Time.get_unix_time_from_system())) if envelope.get("ok")==true else {}
+	if not quote.is_empty():
+		var observed := Time.get_datetime_string_from_unix_time(int(quote.fetched_at)+9*3600).replace("T"," ")
+		nh_status.text = "NH투자증권 KRX 현재가 %s 원 · 수신 %s KST · KIS 일봉과 별도" % [Data.money(quote.price),observed]
+		return
+	match envelope.get("error",""):
+		"NH_SDK_MISSING":
+			nh_status.text = "NH SDK가 없습니다. WSL Python에 nhplug를 설치해 주세요."
+		"NH_CONFIG_MISSING":
+			nh_status.text = "NH 키 설정을 확인해 주세요: WSL ~/.nhplug/.env"
+		_:
+			nh_status.text = "NH 현재가 조회 실패 · 설정/연결 상태를 확인해 주세요."
 
 func activate() -> void:
 	gateway.activate()

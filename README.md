@@ -32,6 +32,8 @@ Windows Godot 4.7.2 프로젝트입니다. 작은 야영지에서 목적지를 �
 
 환경이 다른 PC는 `PHALANX_KIS_WSL_DISTRO`와 `PHALANX_KIS_WSL_PYTHON`을 지정해야 합니다. 현재 연결은 이 PC의 개발 환경용입니다. 일봉 캐시는 `user://research_cache`, 관심/노트 저장은 기존 경로를 사용합니다.
 
+리서치의 **NH 현재가** 버튼은 NH투자증권 KRX 현재가를 KIS 일봉과 별도로 보여 줍니다. NH 키·시크릿은 게임에 입력하지 않고 WSL의 `~/.nhplug/.env`에서 공식 SDK가 읽습니다. [한 번만 설정하는 방법과 연결 범위](docs/NHPLUG_READONLY.md)를 참고하세요. 주문·계좌 API는 이 연결에서 사용하지 않습니다.
+
 [실데이터 검증·출처·한계](docs/RESEARCH_DATA_VALIDATION.md) · [최종 화면](docs/review/research_data_20260929/review.html)
 
 ## AI 참모 · 2026-09-29
