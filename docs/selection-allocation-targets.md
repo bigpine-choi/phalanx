@@ -1,6 +1,6 @@
 # 선정 종목 단일 기준일 ERC 목표비중 v1
 
-선정 JSON이 지정한 동일 history 작업에서 검증한 수익률로 마지막 관측일 **하나**의 네 ERC 배분안을 만든다. 위험자산 내부 연구용 결과이며 실제 계좌 실행 목표나 검증된 추천 포트폴리오가 아니다.
+선정 결과가 지정한 동일 history 작업에서 검증한 수익률로 마지막 관측일 **하나**의 네 ERC 배분안을 만든다. 기존 selection JSON과 영수증이 연결된 history 재실행 결과를 입력으로 받을 수 있다. 위험자산 내부 연구용 결과이며 실제 계좌 실행 목표나 검증된 추천 포트폴리오가 아니다.
 
 ```bash
 uv run phalanx portfolio allocation-targets \
@@ -9,7 +9,17 @@ uv run phalanx portfolio allocation-targets \
   --output /absolute/private/allocation-targets.json
 ```
 
-두 입력 옵션은 필수, `--output`은 선택이다. `AllocationInputService.prepare()`를 한 번 호출한다. 저장된 allocation-input JSON을 다시 파싱하지 않는다. 입력 계약·해시 검증·날짜 정렬·504~756개 수익률 기준·숫자 코드 제한은 [입력 준비 v1](selection-allocation-input.md)을 따른다. 기존 명령과 JSON 스키마는 변경하지 않는다.
+영수증이 연결된 재실행 결과를 사용할 때는 다음과 같이 입력한다.
+
+```bash
+uv run phalanx portfolio allocation-targets \
+  --replay-history /absolute/private/history-replay.json \
+  --read-receipt /absolute/private/history-read-receipt.json \
+  --history-db /absolute/private/history.sqlite3 \
+  --output /absolute/private/allocation-targets.json
+```
+
+`--selection` 하나 또는 `--replay-history`와 `--read-receipt` 한 쌍을 지정한다. `--history-db`는 두 경로 모두 필수, `--output`은 선택이다. 입력 준비 서비스를 한 번 호출하며 저장된 allocation-input JSON을 다시 파싱하지 않는다. 재실행 경로는 현재 DB의 전체 후보 행과 별도 영수증을 다시 대조하고, 불일치하거나 영수증이 없으면 계산을 거부한다. 입력 계약·해시 검증·날짜 정렬·504~756개 수익률 기준·숫자 코드 제한은 [입력 준비 v1](selection-allocation-input.md)을 따른다. 기존 `--selection` 경로는 그대로 사용할 수 있다.
 
 ## 엔진 연결과 비중
 
@@ -30,7 +40,7 @@ uv run phalanx portfolio allocation-targets \
 
 ## 결과와 실패
 
-schema는 `phalanx.selection_allocation_targets.v1`, `schema_version=1`이다. `prepared`에 PR #22 결과 전체를 포함하여 선정 source·정책·완료 플래그·선정 파일 SHA·실제로 검증한 가격 해시·날짜 진단·수익률 행렬을 보존한다. features 소비 해시를 검증 완료로 바꾸지 않는다.
+schema는 `phalanx.selection_allocation_targets.v1`, `schema_version=1`이다. `prepared`에 배분 입력 결과 전체를 포함하여 선정 source·정책·완료 플래그·실제로 검증한 가격 해시·날짜 진단·수익률 행렬을 보존한다. 기존 선정 파일 경로에는 선정 파일 SHA가 남는다. 재실행 경로의 `selection_file_sha256`은 `null`이고 `prepared.replay_provenance`에 재실행·영수증 원본 bytes의 SHA-256, 내장 선정·영수증 내용 해시, 행·features 해시가 이어진다. 기존 선정 파일 경로에는 이 추가 근거가 없다. features 소비 해시를 검증 완료로 바꾸지 않는다. 현재 Formation Room은 별도 선정 파일의 SHA를 요구하므로 재실행 경로의 목표비중 JSON은 그 화면의 입력으로 지원하지 않는다.
 
 추가 근거는 선정 기준일·참조 종점·계산일·선정 코드 순서, 위험모형/solver/PSD 설정 및 fingerprint, 코드·모형·solver 버전, Python/NumPy/scikit-learn 버전, `risk_input_fingerprint`, 전체 `risk_snapshot`, 고정 순서의 `scenarios`다. snapshot은 시나리오별 연환산 covariance·변동성·상관행렬·추정 metadata·PSD 근거를 포함한다. 성공 target은 위험예산·상하한·정확한 비중(`reconciled_decimal_weights`), 연환산 예상변동성·위험기여도·reconciliation 전후 KKT 진단·covariance/solver fingerprint를 보존한다.
 
@@ -50,7 +60,7 @@ schema는 `phalanx.selection_allocation_targets.v1`, `schema_version=1`이다. `
 | --- | --- |
 | 0 | 네 시나리오 성공 JSON 출력·선택적 저장 완료 |
 | 2 | 준비 불가·공통 실패·시나리오 실패·부분 성공 JSON 출력·선택적 저장 완료 |
-| 65 | 잘못된 선정/원천 입력; 기존 입력 서비스 오류 분류 유지 |
+| 65 | 잘못된 선정·재실행·영수증 입력 또는 현재 DB 근거와의 불일치 |
 | 66 | 입력 파일/DB 읽기·원자 저장 오류 또는 기존 출력 파일 존재 |
 
 stdout과 `--output`은 동일 bytes이며 기존 원자 저장 함수를 재사용한다. 정상 실패/부분 성공도 저장한다. Typer 문법 오류도 2이지만 stdout JSON 없이 stderr 사용법 오류를 낸다. 엔진 바깥에서 결과를 구성·직렬화할 수 없는 예상외 내부 오류는 `ALLOCATION_TARGETS_INTERNAL_ERROR`와 종료 2를 stderr로 보고하며 성공/부분 결과를 출력하지 않는다.
@@ -73,4 +83,4 @@ service.export(result, Path("/absolute/private/new-allocation-targets.json"))
 
 [6종목 합성 SQLite 재현](../examples/selection-allocation-targets/README.md)은 실제 features→selection→input→risk→ERC 경로를 사용한다. 테스트는 직접 엔진 호출과의 비교, 4/5종목 제약 경계, 미준비 입력의 호출 차단, 휴일/미래 가격, 잘못된 반환 근거, 부분/공통 실패, Decimal 문맥, 원천 불변·오프라인·원자 저장을 검증한다.
 
-숫자 6자리 코드 한계, 공식 거래일 무누락 미검증, 현재 후보·사후 수집 수정주가의 point-in-time 미보장과 배당 제외 가격수익률 한계를 유지한다. 실제 API·자격증명·계좌·가용현금·정수주·매매계획·주문·변동성 목표/현금 overlay·GUI·새 모델·전체 rolling 연구/과거 백테스트는 포함하지 않는다.
+숫자 6자리 코드 한계, 공식 거래일 무누락 미검증, 현재 후보·사후 수집 수정주가의 point-in-time 미보장과 배당 제외 가격수익률 한계를 유지한다. 영수증의 시각은 로컬 시계의 기록이며 SHA-256은 파일·내용 식별 근거다. 공급자의 과거 공개 시각·수정 이력 또는 서명을 증명하지 않으며 `point_in_time_backtest_guaranteed=false`다. 실제 API·자격증명·계좌·가용현금·정수주·매매계획·주문·변동성 목표/현금 overlay·GUI·새 모델·전체 rolling 연구/과거 백테스트는 포함하지 않는다.

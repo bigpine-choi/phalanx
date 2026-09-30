@@ -1,6 +1,6 @@
 # 선정 결과 → 배분 입력 v1
 
-`portfolio allocation-input`은 **selection JSON**과 그 선정이 참조하는 저장 history 작업으로 `AlignedReturnMatrix`를 준비한다. `input_ready`는 수익률 입력 준비만 뜻한다. 공분산 추정·ERC 제약조건·수치 수렴·목표비중·정수주·매매계획·주문·실전 운용 가능성을 보증하지 않는다.
+`portfolio allocation-input`은 선정 결과와 그 선정이 참조하는 저장 history 작업으로 `AlignedReturnMatrix`를 준비한다. 기존 selection JSON 경로와, 읽기 확인 영수증을 포함한 history 재실행 결과 경로를 지원한다. `input_ready`는 수익률 입력 준비만 뜻한다. 공분산 추정·ERC 제약조건·수치 수렴·목표비중·정수주·매매계획·주문·실전 운용 가능성을 보증하지 않는다.
 
 ```bash
 uv run phalanx portfolio allocation-input \
@@ -9,17 +9,29 @@ uv run phalanx portfolio allocation-input \
   --output /absolute/private/allocation-input.json
 ```
 
-위 경로는 사용자 파일로 바꿀 자리다. `--selection`, `--history-db`는 필수, `--output`은 선택이다. 최신 파일 자동 검색, 별도 작업 ID·기준일·최소 관측 수 덮어쓰기는 제공하지 않는다. stdout은 JSON이고 출력 파일도 같은 bytes다. 정상 준비 불가 결과도 저장하며 기존 파일은 덮어쓰지 않는다.
+읽기 근거를 배분 입력까지 연결하려면, 먼저 [저장 일봉 재실행](history-replay.md)을 `--read-receipt`와 함께 수행한 뒤 다음처럼 사용한다.
+
+```bash
+uv run phalanx portfolio allocation-input \
+  --replay-history /absolute/private/history-replay.json \
+  --read-receipt /absolute/private/history-read-receipt.json \
+  --history-db /absolute/private/history.sqlite3 \
+  --output /absolute/private/allocation-input.json
+```
+
+위 경로는 사용자 파일로 바꿀 자리다. `--selection` 하나 또는 `--replay-history`와 `--read-receipt` 한 쌍을 지정한다. `--history-db`는 두 경로 모두 필수, `--output`은 선택이다. 최신 파일 자동 검색, 별도 작업 ID·기준일·최소 관측 수 덮어쓰기는 제공하지 않는다. stdout은 JSON이고 출력 파일도 같은 bytes다. 정상 준비 불가 결과도 저장하며 기존 파일은 덮어쓰지 않는다.
 
 ## 입력과 원천 검증
 
-선정 파일은 한 번 읽은 bytes로 파싱하고 SHA-256을 구한다. schema `1`과 필수 필드, 정책, 후보 상태·순서·점수·개수·완료 플래그의 일관성을 기존 선정 모델과 검증 규칙으로 확인한다. JSON 중복 키·비유한 값·Decimal의 float/bool·정수/boolean 암묵 변환·UTF-8로 표현할 수 없는 문자열은 거부한다.
+기존 `--selection` 경로에서 선정 파일은 한 번 읽은 bytes로 파싱하고 SHA-256을 구한다. schema `1`과 필수 필드, 정책, 후보 상태·순서·점수·개수·완료 플래그의 일관성을 기존 선정 모델과 검증 규칙으로 확인한다. JSON 중복 키·비유한 값·Decimal의 float/bool·정수/boolean 암묵 변환·UTF-8로 표현할 수 없는 문자열은 거부한다.
 
-`SqliteHistoryRepository.read_selected`는 `show`가 사용하는 동일 검증 경로다. 선정 순서대로 필요한 결과만 한 번의 읽기 전용 SQLite snapshot에서 가져온다. 저장소 생성자는 경로만 보존하고 읽기는 DB 생성·마이그레이션·잠금 파일 생성을 하지 않는다. 기존 전용 디렉터리 0700, DB 0600 및 symlink/hardlink 제한도 유지한다. 비선정 후보의 상태 결과를 읽거나 검증하지 않는다.
+`SqliteHistoryRepository.read_selected`는 `show`가 사용하는 동일 검증 경로다. 기존 선정 파일 경로는 선정 순서대로 필요한 결과만 한 번의 읽기 전용 SQLite snapshot에서 가져온다. 저장소 생성자는 경로만 보존하고 읽기는 DB 생성·마이그레이션·잠금 파일 생성을 하지 않는다. 기존 전용 디렉터리 0700, DB 0600 및 symlink/hardlink 제한도 유지한다. 기존 선정 파일 경로에서는 비선정 후보의 상태 결과를 읽거나 검증하지 않는다.
+
+`--replay-history` 경로는 별도 `--read-receipt` 파일을 반드시 요구한다. 재실행 결과의 전체 후보를 현재 DB의 저장 결과와 다시 대조하고, 읽기 영수증의 작업·종목·상태·가격 결과 및 `read_completed_at <= decision_at`을 확인한다. 재실행 결과의 선정 순서·작업 ID·가격 해시와 DB 또는 영수증이 맞지 않으면 배분 입력 계산을 거부한다. 영수증이 없으면 단순 수집 완료 시각 검사로 조용히 대체하지 않는다. 이 검사는 현재 저장된 근거와 재실행 파일의 일관성을 확인한다. 과거에 재실행 파일 자체가 생성됐다는 뜻은 아니다.
 
 작업·discovery ID, 기준일의 요청 기간 포함 여부, 선정 후보의 ordinal과 전체 target(시장·코드·표준코드·이름·정책·원천 파일 근거)을 대조한다. history 모델은 공급자 KIS, 수집 계약, API 경로·TR ID, KRX `J`, 일봉 `D`, 수정주가 `0`을 고정한다. 선정 종목은 completed여야 한다. 저장소에서 검증한 결과의 bars와 SHA-256을 그대로 사용하고 선정 후보의 `source_price_sha256`과도 비교한다.
 
-선정 순서와 선행 0을 보존하며 종목 제외·대체·재선정을 하지 않는다. `selection_filled=true`이고 선정 종목이 통과하면 비선정 후보 때문에 `complete=false`여도 준비할 수 있다. 빈 선정은 DB 가격 읽기를 생략하고 `symbols=[]`, `history_contract=null`로 반환한다. 검증하지 않은 가격 근거를 표시하지 않는다.
+선정 순서와 선행 0을 보존하며 종목 제외·대체·재선정을 하지 않는다. `selection_filled=true`이고 선정 종목이 통과하면 비선정 후보 때문에 `complete=false`여도 준비할 수 있다. 기존 선정 파일 경로의 빈 선정은 DB 가격 읽기를 생략하고 `symbols=[]`, `history_contract=null`로 반환한다. 재실행 경로는 이 경우에도 전체 후보와 영수증의 검증을 생략하지 않는다. 검증하지 않은 가격 근거를 표시하지 않는다.
 
 ## 날짜 정책 `strict_observed_window_v1`
 
@@ -33,7 +45,7 @@ A에 월·화·수, B에 월·수만 있으면 화요일 누락으로 차단한�
 
 ## 결과와 준비 불가 사유
 
-JSON schema는 `1`이다. 원래 선정 source·정책·완료 플래그, 선정 코드·기준일·참조 종점, 파일 SHA-256, history/discovery ID, 가격 기준, 최소/최대 관측 수를 보존한다. `symbols`에는 실제 검증한 `verified_source_price_sha256`, 저장/기준일 이하/검사 창 종가 수, 최초·최종 관측일과 `missing_dates`가 있다.
+JSON schema는 `1`이다. 원래 선정 source·정책·완료 플래그, 선정 코드·기준일·참조 종점, history/discovery ID, 가격 기준, 최소/최대 관측 수를 보존한다. 기존 선정 파일 경로는 `selection_file_sha256`에 원본 파일 해시를 남긴다. 재실행 경로에서는 이 값을 `null`로 두고 `replay_provenance`에 재실행·영수증 원본 bytes의 SHA-256, 내장 선정 내용과 영수증 내용의 해시, 재실행의 행·features 해시를 연결한다. 기존 `--selection` 출력에는 `replay_provenance`가 없다. `symbols`에는 실제 검증한 `verified_source_price_sha256`, 저장/기준일 이하/검사 창 종가 수, 최초·최종 관측일과 `missing_dates`가 있다.
 
 `inspected_price_dates`는 검사한 창이다. 날짜열과 종점이 일치하면 `used_start`, `used_end`, `return_observation_count`로 그 창의 기간과 인접 수익률 수를 남긴다. 관측 수 부족이나 코드 미지원이면 이 수가 있어도 `matrix=null`이다. 날짜 불일치일 때 사용 기간은 null, 수익률 수는 0이며 누락 진단을 확인한다.
 
@@ -59,7 +71,7 @@ JSON schema는 `1`이다. 원래 선정 source·정책·완료 플래그, 선정
 | --- | --- |
 | 0 | 준비 성공 JSON 출력·선택적 저장 완료 |
 | 2 | 정상 준비 불가 JSON 출력·선택적 저장 완료 |
-| 65 | 잘못된 선정 JSON, 작업/target/선정 원천 해시 불일치, 완료 상태 모순, 수치 범위 오류 |
+| 65 | 잘못된 선정·재실행·영수증 JSON, 작업/target/선정 원천 해시·영수증 불일치, 완료 상태 모순, 수치 범위 오류 |
 | 66 | 파일/DB 읽기·원자 저장 실패 또는 기존 출력 파일 존재 |
 
 필수 옵션 누락 등 Typer **문법 오류도 2**지만 이 경우 stdout JSON 없이 stderr에 사용법 오류를 낸다. 저장소 자체의 손상(저장 해시·날짜·코드·스키마 검증 실패)은 기존 `HistoryStorageError`/`STORAGE_FAILED`의 66을 유지한다. 이를 정상 이력 부족으로 처리하지 않는다.
@@ -82,4 +94,4 @@ service.export(result, Path("/absolute/private/new-allocation-input.json"))
 
 [합성 SQLite 재현 방법](../examples/selection-allocation-input/README.md)은 실제 features→selection 서비스 생산 경로를 사용한다. 테스트는 네트워크 차단 환경에서 수익률 경계·날짜 누락·원천 연결·엄격한 JSON·읽기 전용 단일 조회·바이트 일치·원천 불변·저장 실패를 검증한다.
 
-현재 후보의 생존편향 및 사후 수집 수정주가 한계는 그대로이며 `point_in_time_backtest_guaranteed=false`다. 가격수익률은 배당 포함 총수익률이 아니다. 후속 작업에서 공분산과 ERC 및 목표비중을 별도로 검증해야 한다.
+현재 후보의 생존편향 및 사후 수집 수정주가 한계는 그대로이며 `point_in_time_backtest_guaranteed=false`다. 읽기 시각은 로컬 시계의 기록이고 SHA-256은 파일·내용 식별 근거다. 공급자의 과거 공개 시각·수정 이력 또는 서명을 증명하지 않는다. 가격수익률은 배당 포함 총수익률이 아니다. 후속 작업에서 공분산과 ERC 및 목표비중을 별도로 검증해야 한다.
