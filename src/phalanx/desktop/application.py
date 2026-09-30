@@ -66,11 +66,16 @@ class DesktopApplication:
             self._close_callback = callback
 
     def _reply(self, **extra: object) -> dict[str, object]:
+        # The calculation can publish its result just before the worker exits.
+        # Keep polling clients in the running state until the worker clears _busy.
+        state = self._state
+        if self._busy and state.get("state") in {"complete", "error"}:
+            state = {**state, "state": "running"}
         return {
             "ok": True,
             "generation": self._generation,
             "job_id": self._job_id,
-            **self._state,
+            **state,
             **extra,
         }
 
