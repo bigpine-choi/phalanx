@@ -9,7 +9,8 @@ uv run phalanx candidates replay-history \
   --as-of 2026-09-11 \
   --decision-at 2026-09-13T09:00:00+09:00 \
   --code 005930 --code 0001A0 \
-  --metric return_60 --top 1 --max-age-days 2
+  --metric return_60 --top 1 --max-age-days 2 \
+  --output /absolute/private/history-replay.json
 ```
 
 `--job-id`는 정확한 저장 작업을 지정한다. 다른 작업이나 가장 최근 작업으로 자동 대체하지 않는다. `--code`는 반복할 수 있으며 해당 작업의 종목 1~25개를 명시해야 한다. 더 큰 작업을 여러 묶음으로 나누면 각 선정 순위는 그 묶음 안에서만 유효하며 통합 순위로 해석할 수 없다. `--metric`, `--top`, `--max-age-days`는 [기존 후보 선정 정책](candidate-selection.md)을 그대로 사용한다. `--as-of`는 특성값 계산에 사용할 마지막 거래일이고, `--decision-at`은 시간대가 포함된 판단 시각이다. 두 날짜를 같은 뜻으로 취급하지 않는다. `--output`으로 새 개인 JSON 파일에 결과를 저장할 수 있으며 기존 파일은 덮어쓰지 않는다. 이 명령의 저장소 경로는 현재 Linux 실행 환경을 대상으로 한다.
