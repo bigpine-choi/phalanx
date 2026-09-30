@@ -21,6 +21,11 @@ from phalanx.domain.market_data import DailyBar
 from phalanx.domain.price_features import CandidatePriceFeatures
 from phalanx.domain.price_history import HistoryJob, SymbolHistory, SymbolStatus, price_data_hash
 from phalanx.market_data.features.calculation import calculate_price_features
+from phalanx.market_data.history.read_receipt import (
+    HistoryReadReceipt,
+    parse_read_receipt,
+    validate_read_receipt,
+)
 from phalanx.market_data.history.reader import HistoryReader
 from phalanx.portfolio.private_json_storage import (
     PrivateJsonAlreadyExistsError,
@@ -84,7 +89,14 @@ class HistoryReplayResult(BaseModel):
     selection: CandidateSelection
     rows: tuple[ConsumedRowReceipt, ...]
     row_evidence_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    receipt_check: Literal["local_fetch_completed_before_decision"] = (
+    read_receipt: HistoryReadReceipt | None = None
+    read_receipt_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    read_receipt_content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    local_snapshot_read_before_decision_confirmed: bool = False
+    receipt_check: Literal[
+        "local_fetch_completed_before_decision",
+        "local_committed_snapshot_read_before_decision",
+    ] = (
         "local_fetch_completed_before_decision"
     )
     history_results_rehashed_during_replay: Literal[True] = True
@@ -95,6 +107,7 @@ class HistoryReplayResult(BaseModel):
 
     @model_validator(mode="after")
     def _coherent_hashes(self) -> Self:
+        confirmed = self.read_receipt is not None
         if (
             self.features.history_job_id != self.history_job_id
             or self.features.as_of != self.as_of
@@ -103,6 +116,32 @@ class HistoryReplayResult(BaseModel):
             or self.selection.source.input_sha256 != self.features_sha256
             or self.features_sha256 != hashlib.sha256(self.features.to_json_bytes()).hexdigest()
             or self.row_evidence_sha256 != hashlib.sha256(_receipt_bytes(self.rows)).hexdigest()
+            or confirmed != (self.read_receipt_sha256 is not None)
+            or confirmed != (self.read_receipt_content_sha256 is not None)
+            or confirmed != self.local_snapshot_read_before_decision_confirmed
+            or (
+                self.read_receipt is not None
+                and (
+                    self.read_receipt_content_sha256
+                    != hashlib.sha256(self.read_receipt.to_json_bytes()).hexdigest()
+                    or self.read_receipt.history_job_id != self.history_job_id
+                    or self.read_receipt.read_completed_at > self.decision_at
+                    or tuple(
+                        (symbol.ordinal, symbol.stock_code)
+                        for symbol in self.read_receipt.symbols
+                    )
+                    != tuple(
+                        (candidate.ordinal, candidate.target.short_code)
+                        for candidate in self.selection.candidates
+                    )
+                )
+            )
+            or self.receipt_check
+            != (
+                "local_committed_snapshot_read_before_decision"
+                if confirmed
+                else "local_fetch_completed_before_decision"
+            )
         ):
             raise ValueError("history replay hashes or source identity disagree")
         return self
@@ -138,6 +177,7 @@ class HistoryReplayService:
         *,
         codes: tuple[str, ...] = (),
         all_targets: bool = False,
+        read_receipt_bytes: bytes | None = None,
     ) -> HistoryReplayResult:
         calculated_at = self._clock()
         if len(codes) > MAX_REPLAY_TARGETS:
@@ -173,6 +213,12 @@ class HistoryReplayService:
         receipts: dict[int, tuple[datetime, int]] = {}
         for state in states:
             receipts[state.ordinal] = self._validate_receipt(job, state, decision_at)
+        read_receipt = None
+        read_receipt_sha256 = None
+        if read_receipt_bytes is not None:
+            read_receipt = parse_read_receipt(read_receipt_bytes)
+            validate_read_receipt(read_receipt, job, states, decision_at)
+            read_receipt_sha256 = hashlib.sha256(read_receipt_bytes).hexdigest()
         features = calculate_price_features(
             job, states, as_of=as_of, calculated_at=calculated_at
         )
@@ -218,6 +264,19 @@ class HistoryReplayService:
             selection=selection,
             rows=row_receipts,
             row_evidence_sha256=hashlib.sha256(_receipt_bytes(row_receipts)).hexdigest(),
+            read_receipt=read_receipt,
+            read_receipt_sha256=read_receipt_sha256,
+            read_receipt_content_sha256=(
+                hashlib.sha256(read_receipt.to_json_bytes()).hexdigest()
+                if read_receipt is not None
+                else None
+            ),
+            local_snapshot_read_before_decision_confirmed=read_receipt is not None,
+            receipt_check=(
+                "local_committed_snapshot_read_before_decision"
+                if read_receipt is not None
+                else "local_fetch_completed_before_decision"
+            ),
         )
 
     @staticmethod

@@ -11,6 +11,7 @@ from typing import Annotated
 import typer
 
 from phalanx.config import ConfigError
+from phalanx.desktop.storage import StorageError
 from phalanx.discovery.errors import DiscoveryError, DiscoveryStorageError
 from phalanx.discovery.repository import SqliteDiscoveryRepository
 from phalanx.domain.price_history import HistoryView
@@ -18,8 +19,16 @@ from phalanx.kis.errors import KisAuthError
 from phalanx.market_data.errors import InvalidMarketDataRequestError
 from phalanx.market_data.history.application import production_history_reader
 from phalanx.market_data.history.errors import HistoryError, HistoryStorageError
+from phalanx.market_data.history.read_receipt import (
+    HistoryReadReceiptError,
+    HistoryReadReceiptService,
+)
 from phalanx.market_data.history.repository import SqliteHistoryRepository
 from phalanx.market_data.history.service import HistoryService
+from phalanx.portfolio.private_json_storage import (
+    PrivateJsonAlreadyExistsError,
+    PrivateJsonStorageError,
+)
 
 app = typer.Typer(
     add_completion=False,
@@ -166,3 +175,33 @@ def show(job_id: str, stock_code: str, history_db: HistoryPath = None) -> None:
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
 
     _execute(action)
+
+
+@app.command("read-receipt")
+def read_receipt(
+    job_id: str,
+    output: Annotated[Path, typer.Option("--output", help="새 개인 영수증 JSON 경로")],
+    code: Annotated[
+        list[str] | None, typer.Option("--code", help="반복 가능한 1~25개 정확한 종목 코드")
+    ] = None,
+    history_db: HistoryPath = None,
+) -> None:
+    """완료된 저장 일봉을 새 트랜잭션에서 읽고 확인 시각을 남깁니다."""
+    try:
+        receipt = HistoryReadReceiptService().capture(
+            SqliteHistoryRepository(history_db), job_id, codes=tuple(code or ())
+        )
+        HistoryReadReceiptService.export(receipt, output)
+    except HistoryStorageError as error:
+        typer.echo(f"{error.code}: {error}", err=True)
+        raise typer.Exit(66) from None
+    except (HistoryError, HistoryReadReceiptError) as error:
+        typer.echo(f"{error.code}: {error}", err=True)
+        raise typer.Exit(65) from None
+    except PrivateJsonAlreadyExistsError:
+        typer.echo("OUTPUT_EXISTS: 기존 읽기 영수증을 덮어쓰지 않습니다.", err=True)
+        raise typer.Exit(66) from None
+    except (PrivateJsonStorageError, StorageError, OSError):
+        typer.echo("OUTPUT_STORAGE_FAILED: 읽기 영수증을 안전하게 저장하지 못했습니다.", err=True)
+        raise typer.Exit(66) from None
+    typer.echo(receipt.to_json_bytes().decode("utf-8"), nl=False)
